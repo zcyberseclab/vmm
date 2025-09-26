@@ -358,15 +358,17 @@ class VBoxManageController(VMController):
         try:
             logger.info(f"在虚拟机中执行命令: {command}")
 
-            cmd = [
-                self.vboxmanage_path, "guestcontrol", vm_name,
+            vbox_cmd = [
+                self.vboxmanage_path,
+                "guestcontrol", vm_name, "run",
+                "--exe", "cmd.exe",
                 "--username", username,
                 "--password", password,
-                "run", "--exe", "cmd.exe",
+                "--wait-stdout", "--wait-stderr",
                 "--", "/c", command
             ]
 
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+            result = subprocess.run(vbox_cmd, capture_output=True, text=True, timeout=timeout)
 
             if result.returncode == 0:
                 logger.info("命令执行成功")
