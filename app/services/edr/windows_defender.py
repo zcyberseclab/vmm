@@ -27,15 +27,15 @@ class WindowsDefenderEDRClient(EDRClient):
 
     async def get_alerts(self, start_time: datetime, end_time: Optional[datetime] = None,
                         file_hash: Optional[str] = None, file_name: Optional[str] = None) -> List[EDRAlert]:
-        
+
         try:
             alerts = []
 
             logger.info("开始获取Windows Defender威胁检测信息...")
 
             # 获取威胁检测信息（通过事件日志）
-            threat_data = await self.get_quarantine_info(file_name)
-            
+            threat_data = await self._get_threat_events(file_name)
+
             print("=== 威胁数据汇总 ===")
             print(f"获取到 {len(threat_data)} 条威胁数据")
             for i, data in enumerate(threat_data):
@@ -52,15 +52,13 @@ class WindowsDefenderEDRClient(EDRClient):
             logger.error(f"获取Windows Defender告警失败: {str(e)}")
             return []
 
-    async def get_quarantine_info(self, file_name: Optional[str] = None) -> List[Dict[str, Any]]:
-        """获取威胁检测信息 - 简化版本，只使用最有效的事件日志方法"""
+    async def _get_threat_events(self, file_name: Optional[str] = None) -> List[Dict[str, Any]]:
+       
         try:
-            logger.info("获取Windows Defender威胁检测信息...")
+            logger.info("查询Windows Defender事件日志...")
             threat_data = []
-            
-            # 直接查询Windows Defender事件日志 - 尝试多种方法
 
-            # 方法1: 尝试使用完整路径的PowerShell
+  
             program_path = r"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe"
             arguments = [
                 "-Command",
@@ -79,12 +77,12 @@ class WindowsDefenderEDRClient(EDRClient):
                 success, output = await self.vm_controller.execute_command_in_vm(
                     self.vm_name, event_cmd, self.username, self.password, timeout=60
                 )
-            
+
             print(f"=== Windows Defender 事件日志查询结果 ===")
             print(f"Success: {success}")
             print(f"Output: \n{output}")
             print("=" * 60)
-            
+
             if success and output.strip() and ("TimeCreated" in output or "Message" in output):
                 parsed_events = self._parse_event_log_output(output, file_name)
                 if parsed_events:
@@ -94,11 +92,11 @@ class WindowsDefenderEDRClient(EDRClient):
                     logger.info("事件日志解析未发现威胁记录")
             else:
                 logger.warning("事件日志查询失败或无数据")
-            
+
             return threat_data
 
         except Exception as e:
-            logger.error(f"获取威胁检测信息失败: {str(e)}")
+            logger.error(f"获取威胁事件日志失败: {str(e)}")
             return []
 
     def _convert_threat_data_to_alerts(self, threat_data: List[Dict[str, Any]], 
@@ -152,7 +150,6 @@ class WindowsDefenderEDRClient(EDRClient):
                                'Unknown')
 
                     # 创建告警描述
-                    source = item.get('source', 'Windows Defender')
                     description = f"Windows Defender检测到威胁: {threat_name}"
                     
                     # 添加更多详细信息
@@ -212,7 +209,7 @@ class WindowsDefenderEDRClient(EDRClient):
 
                 if not line_stripped:
                     # 空行表示一个记录结束
-                    if current_record and current_record.get('Message'):
+                    if current_record and (current_record.get('Message') or current_record.get('TimeCreated')):
                         # 处理完整的消息
                         full_message = '\n'.join(current_message)
                         current_record['Message'] = full_message
@@ -299,13 +296,13 @@ class WindowsDefenderEDRClient(EDRClient):
         }
 
         try:
-            # 提取威胁名称 - 支持中英文
-            # 中文格式: "名称: Worm:Win32/Conficker.D"
-            # 英文格式: "Name: Worm:Win32/Conficker.D"
+            # 提取威胁名称 - 支持中英文，考虑前面可能有空格
+            # 中文格式: "        名称: TrojanDropper:Win32/Conficker.gen!A"
+            # 英文格式: "        Name: TrojanDropper:Win32/Conficker.gen!A"
             name_patterns = [
-                r'名称:\s*([^\r\n]+)',
-                r'Name:\s*([^\r\n]+)',
-                r'ThreatName:\s*([^\r\n]+)'
+                r'\s*名称:\s*([^\r\n]+)',
+                r'\s*Name:\s*([^\r\n]+)',
+                r'\s*ThreatName:\s*([^\r\n]+)'
             ]
 
             for pattern in name_patterns:
@@ -314,12 +311,12 @@ class WindowsDefenderEDRClient(EDRClient):
                     threat_info['threat_name'] = match.group(1).strip()
                     break
 
-            # 提取文件路径
-            # 格式: "路径: file:_C:\Users\vboxuser\AppData\Local\Temp\876765086.tmp"
+            # 提取文件路径 - 考虑前面可能有空格
+            # 格式: "        路径: file:_C:\Users\vboxuser\Desktop\C9E0917FE3231A652C014AD76B55B26A.exe"
             path_patterns = [
-                r'路径:\s*file:_([^;]+)',
-                r'Path:\s*file:_([^;]+)',
-                r'file:([^;,\s]+)'
+                r'\s*路径:\s*file:_([^\r\n]+)',
+                r'\s*Path:\s*file:_([^\r\n]+)',
+                r'file:_([^\r\n;,\s]+)'
             ]
 
             for pattern in path_patterns:
@@ -328,12 +325,12 @@ class WindowsDefenderEDRClient(EDRClient):
                     threat_info['file_path'] = match.group(1).strip()
                     break
 
-            # 提取进程名称
-            # 格式: "进程名称: C:\Windows\SysWOW64\rundll32.exe"
+            # 提取进程名称 - 考虑前面可能有空格
+            # 格式: "        进程名称: C:\Windows\System32\VBoxService.exe"
             process_patterns = [
-                r'进程名称:\s*([^\r\n]+)',
-                r'Process Name:\s*([^\r\n]+)',
-                r'ProcessName:\s*([^\r\n]+)'
+                r'\s*进程名称:\s*([^\r\n]+)',
+                r'\s*Process Name:\s*([^\r\n]+)',
+                r'\s*ProcessName:\s*([^\r\n]+)'
             ]
 
             for pattern in process_patterns:
@@ -342,11 +339,11 @@ class WindowsDefenderEDRClient(EDRClient):
                     threat_info['process_name'] = match.group(1).strip()
                     break
 
-            # 提取操作
-            # 格式: "操作: 隔离"
+            # 提取操作 - 考虑前面可能有空格
+            # 格式: "        操作: 隔离"
             action_patterns = [
-                r'操作:\s*([^\r\n]+)',
-                r'Action:\s*([^\r\n]+)'
+                r'\s*操作:\s*([^\r\n]+)',
+                r'\s*Action:\s*([^\r\n]+)'
             ]
 
             for pattern in action_patterns:
@@ -355,11 +352,11 @@ class WindowsDefenderEDRClient(EDRClient):
                     threat_info['action'] = match.group(1).strip()
                     break
 
-            # 提取严重性
-            # 格式: "严重性: 严重"
+            # 提取严重性 - 考虑前面可能有空格
+            # 格式: "        严重性: 严重"
             severity_patterns = [
-                r'严重性:\s*([^\r\n]+)',
-                r'Severity:\s*([^\r\n]+)'
+                r'\s*严重性:\s*([^\r\n]+)',
+                r'\s*Severity:\s*([^\r\n]+)'
             ]
 
             for pattern in severity_patterns:
