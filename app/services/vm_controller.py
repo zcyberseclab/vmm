@@ -353,7 +353,7 @@ class VBoxManageController(VMController):
             logger.error(f"从虚拟机复制文件失败: {str(e)}")
             return False
 
-    async def execute_command_in_vm(self, vm_name: str, command: str, username: str = "admin", password: str = "password", timeout: int = 120) -> tuple[bool, str]:
+    async def execute_command_in_vm(self, vm_name: str, command: str, username: str = "vboxuser", password: str = "123456", timeout: int = 120) -> tuple[bool, str]:
         """在虚拟机中执行命令"""
         try:
             logger.info(f"在虚拟机中执行命令: {command}")
@@ -382,6 +382,43 @@ class VBoxManageController(VMController):
             return False, "命令执行超时"
         except Exception as e:
             logger.error(f"在虚拟机中执行命令失败: {str(e)}")
+            return False, str(e)
+
+    async def execute_program_in_vm(self, vm_name: str, program_path: str, arguments: list = None, username: str = "vboxuser", password: str = "123456", timeout: int = 120) -> tuple[bool, str]:
+        """在虚拟机中直接执行程序（不通过cmd.exe）"""
+        try:
+            if arguments is None:
+                arguments = []
+
+            logger.info(f"在虚拟机中直接执行程序: {program_path} {' '.join(arguments)}")
+
+            vbox_cmd = [
+                self.vboxmanage_path,
+                "guestcontrol", vm_name, "run",
+                "--exe", program_path,
+                "--username", username,
+                "--password", password,
+                "--wait-stdout", "--wait-stderr"
+            ]
+
+            # 添加程序参数
+            if arguments:
+                vbox_cmd.extend(["--"] + arguments)
+
+            result = subprocess.run(vbox_cmd, capture_output=True, text=True, timeout=timeout)
+
+            if result.returncode == 0:
+                logger.info("程序执行成功")
+                return True, result.stdout
+            else:
+                logger.error(f"程序执行失败: {result.stderr}")
+                return False, result.stderr
+
+        except subprocess.TimeoutExpired:
+            logger.error("程序执行超时")
+            return False, "程序执行超时"
+        except Exception as e:
+            logger.error(f"在虚拟机中执行程序失败: {str(e)}")
             return False, str(e)
 
 

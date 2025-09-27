@@ -1,16 +1,13 @@
 """
-Windows Defender EDR Client Implementation
+Windows Defender EDR Client Implementation - 简化版本
 
-This module provides the Windows Defender specific implementation of the EDR client.
-It handles communication with Windows Defender through PowerShell commands and
-parses the quarantine information to generate EDR alerts.
+这个模块提供简化的Windows Defender EDR客户端实现。
+只保留最有效的威胁检测方法：通过Windows事件日志获取威胁信息。
 """
 
 import os
 import re
 import asyncio
-import tempfile
-import subprocess
 from datetime import datetime
 from typing import List, Dict, Any, Optional
 
@@ -23,38 +20,30 @@ from .base import EDRClient
 
 class WindowsDefenderEDRClient(EDRClient):
     """
-    Windows Defender EDR client implementation.
+    Windows Defender EDR客户端 - 简化版本
     
-    This class provides Windows Defender specific functionality for retrieving
-    security alerts and quarantine information through PowerShell commands.
+    只使用最可靠的方法：通过Windows事件日志获取威胁检测信息
     """
 
     async def get_alerts(self, start_time: datetime, end_time: Optional[datetime] = None,
                         file_hash: Optional[str] = None, file_name: Optional[str] = None) -> List[EDRAlert]:
-        """
-        Retrieve alerts from Windows Defender.
         
-        This method queries Windows Defender's quarantine system to retrieve
-        information about detected threats and converts them to EDRAlert objects.
-        
-        Args:
-            start_time: Start time for alert search
-            end_time: End time for alert search (optional, defaults to current time)
-            file_hash: Specific file hash to search for (optional)
-            file_name: Specific file name to search for (optional)
-            
-        Returns:
-            List of EDRAlert objects containing Windows Defender alerts
-        """
         try:
             alerts = []
 
-            # 获取隔离区信息
-            quarantine_info = await self.get_quarantine_info(file_name)
-            print("get_quarantine_info")
-            print(quarantine_info)
-            if quarantine_info:
-                alerts.extend(self._convert_quarantine_to_alerts(quarantine_info, start_time, end_time))
+            logger.info("开始获取Windows Defender威胁检测信息...")
+
+            # 获取威胁检测信息（通过事件日志）
+            threat_data = await self.get_quarantine_info(file_name)
+            
+            print("=== 威胁数据汇总 ===")
+            print(f"获取到 {len(threat_data)} 条威胁数据")
+            for i, data in enumerate(threat_data):
+                print(f"记录 {i+1}: {data}")
+
+            # 转换为EDR告警
+            if threat_data:
+                alerts.extend(self._convert_threat_data_to_alerts(threat_data, start_time, end_time))
 
             logger.info(f"从Windows Defender获取到 {len(alerts)} 个告警")
             return alerts
@@ -64,610 +53,322 @@ class WindowsDefenderEDRClient(EDRClient):
             return []
 
     async def get_quarantine_info(self, file_name: Optional[str] = None) -> List[Dict[str, Any]]:
-        """获取隔离信息 - 使用批处理文件方法"""
+        """获取威胁检测信息 - 简化版本，只使用最有效的事件日志方法"""
         try:
-            quarantine_data = []
+            logger.info("获取Windows Defender威胁检测信息...")
+            threat_data = []
+            
+            # 直接查询Windows Defender事件日志 - 尝试多种方法
 
-            list_cmd = r"& 'C:\Program Files\Windows Defender\MpCmdRun.exe' -Restore -ListAll"
-            success1, output1 = await self.vm_controller.execute_command_in_vm(
-                self.vm_name, list_cmd, self.username, self.password, timeout=60
+            # 方法1: 尝试使用完整路径的PowerShell
+            program_path = r"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe"
+            arguments = [
+                "-Command",
+                "Get-WinEvent -FilterHashtable @{LogName='Microsoft-Windows-Windows Defender/Operational'; ID=1116,1117,1118,1119} -MaxEvents 20 | Select-Object TimeCreated, Id, LevelDisplayName, Message | Format-List"
+            ]
+
+            success, output = await self.vm_controller.execute_program_in_vm(
+                self.vm_name, program_path, arguments, self.username, self.password, timeout=60
             )
 
-            print("get_quarantine_info MpCmdRun -ListAll")
-            print(f"Success: {success1}")
-            print(f"Output: \n{output1}")
+            # 如果方法1失败，回退到cmd.exe方法
+            if not success:
+                logger.warning("PowerShell直接执行失败，回退到cmd.exe方法...")
+                event_cmd = 'powershell -Command "Get-WinEvent -FilterHashtable @{LogName=\'Microsoft-Windows-Windows Defender/Operational\'; ID=1116,1117,1118,1119} -MaxEvents 20 | Select-Object TimeCreated, Id, LevelDisplayName, Message | Format-List"'
 
-            if success1 and output1.strip():
-                quarantine_data.extend(self._parse_quarantine_output(output1, file_name))
- 
-            return quarantine_data
+                success, output = await self.vm_controller.execute_command_in_vm(
+                    self.vm_name, event_cmd, self.username, self.password, timeout=60
+                )
+            
+            print(f"=== Windows Defender 事件日志查询结果 ===")
+            print(f"Success: {success}")
+            print(f"Output: \n{output}")
+            print("=" * 60)
+            
+            if success and output.strip() and ("TimeCreated" in output or "Message" in output):
+                parsed_events = self._parse_event_log_output(output, file_name)
+                if parsed_events:
+                    logger.info(f"从事件日志解析到 {len(parsed_events)} 个威胁记录")
+                    threat_data.extend(parsed_events)
+                else:
+                    logger.info("事件日志解析未发现威胁记录")
+            else:
+                logger.warning("事件日志查询失败或无数据")
+            
+            return threat_data
 
         except Exception as e:
-            logger.error(f"获取隔离区信息失败: {str(e)}")
+            logger.error(f"获取威胁检测信息失败: {str(e)}")
             return []
 
-    
-    def _parse_quarantine_output(self, output: str, filename: str = None) -> List[Dict[str, Any]]:
+    def _convert_threat_data_to_alerts(self, threat_data: List[Dict[str, Any]], 
+                                     start_time: datetime, end_time: Optional[datetime] = None) -> List[EDRAlert]:
         """
-        解析MpCmdRun -Restore -ListAll的输出
-
-        Args:
-            output: MpCmdRun命令的输出
-            filename: 要匹配的文件名（可选）
-
-        Returns:
-            解析后的隔离记录列表
-        """
-        logger.info("解析隔离区输出数据")
-        print("----_parse_quarantine_output")
-        print(output)
-
-        if not output:
-            return []
-
-        # 按威胁名称分割输出
-        threat_blocks = re.split(r'(?=ThreatName = )', output)[1:]
-        threat_records = {}
-
-        # 获取本地时区
-        local_tz = pytz.timezone('Asia/Shanghai')  # 可以配置化
-
-        for block in threat_blocks:
-            threat_name_match = re.match(r'ThreatName = (.+)', block)
-            if not threat_name_match:
-                continue
-
-            threat_name = threat_name_match.group(1).strip()
-
-            # 查找文件条目
-            file_entries = re.findall(
-                r'file:([^\s]+)\s+quarantined at\s+(\d{4}/\d{1,2}/\d{1,2}\s+\d{1,2}:\d{2}:\d{2}\s+\(UTC\))',
-                block
-            )
-
-            for file_path, quarantine_time in file_entries:
-                # 如果提供了文件名，进行匹配检查
-                if filename:
-                    quarantined_filename = os.path.basename(file_path)
-                    input_filename = os.path.basename(filename)
-
-                    match_found = (
-                        filename in file_path or
-                        input_filename == quarantined_filename or
-                        input_filename in quarantined_filename or
-                        quarantined_filename in input_filename
-                    )
-
-                    if not match_found:
-                        continue
-
-                # 解析时间
-                try:
-                    utc_time = datetime.strptime(quarantine_time, '%Y/%m/%d %H:%M:%S (UTC)')
-                    utc_time = pytz.utc.localize(utc_time)
-
-                    # 保留最新的记录
-                    if threat_name not in threat_records or utc_time > threat_records[threat_name]['utc_time']:
-                        # 转换为本地时间
-                        local_time = utc_time.astimezone(local_tz).strftime('%Y/%m/%d %H:%M:%S (%Z)')
-                        threat_records[threat_name] = {
-                            'ThreatName': threat_name,
-                            'QuarantineTime': local_time,
-                            'FilePath': file_path,
-                            'utc_time': utc_time
-                        }
-                except ValueError as e:
-                    logger.warning(f"解析隔离时间失败: {quarantine_time} - {str(e)}")
-                    continue
-
-        # 构建结果列表
-        results = []
-        for record in threat_records.values():
-            results.append({
-                'ThreatName': record['ThreatName'],
-                'QuarantineTime': record['QuarantineTime'],
-                'FilePath': record['FilePath']
-            })
-
-        logger.info(f"解析到 {len(results)} 个隔离记录")
-        return results
-
-    def _convert_quarantine_to_alerts(self, quarantine_data: List[Dict[str, Any]],
-                                    start_time: datetime, end_time: Optional[datetime] = None) -> List[EDRAlert]:
-        """
-        将隔离区数据转换为EDR告警
-
-        Args:
-            quarantine_data: 隔离区数据列表
-            start_time: 开始时间
-            end_time: 结束时间（可选）
-
-        Returns:
-            EDRAlert对象列表
+        将威胁数据转换为EDR告警
         """
         alerts = []
-        for item in quarantine_data:
+        for item in threat_data:
             try:
-                # 检查是否有威胁名称，如果没有则跳过（认为没有报警）
-                threat_name = item.get('ThreatName')
-                if not threat_name:
+                # 检查是否有威胁名称
+                threat_name = item.get('ThreatName') or item.get('threat_name')
+                if not threat_name or threat_name == 'Unknown':
                     logger.debug("跳过没有威胁名称的记录")
                     continue
 
-                # 使用 QuarantineTime 而不是 DetectionTime
-                quarantine_time_str = item.get("QuarantineTime")
-                if quarantine_time_str:
-                    # 解析时间字符串，格式如: "2024/01/15 14:30:25 (CST)"
+                # 获取检测时间
+                detection_time_str = (item.get('DetectionTime') or 
+                                    item.get('detection_time') or 
+                                    item.get('TimeCreated'))
+                
+                if detection_time_str:
                     try:
-                        # 移除时区信息进行解析
-                        time_part = quarantine_time_str.split(' (')[0]
-                        detection_time = datetime.strptime(time_part, '%Y/%m/%d %H:%M:%S')
-                    except ValueError:
-                        # 如果解析失败，使用当前时间
-                        logger.warning(f"无法解析隔离时间: {quarantine_time_str}")
+                        # 尝试解析不同的时间格式
+                        if isinstance(detection_time_str, str):
+                            # 移除时区信息进行解析
+                            time_part = detection_time_str.split(' (')[0].split('.')[0]
+                            # 尝试多种时间格式
+                            for fmt in ['%Y/%m/%d %H:%M:%S', '%Y-%m-%d %H:%M:%S', '%m/%d/%Y %H:%M:%S']:
+                                try:
+                                    detection_time = datetime.strptime(time_part, fmt)
+                                    break
+                                except ValueError:
+                                    continue
+                            else:
+                                # 如果所有格式都失败，使用当前时间
+                                detection_time = datetime.now()
+                        else:
+                            detection_time = detection_time_str
+                    except (ValueError, AttributeError):
                         detection_time = datetime.now()
+                else:
+                    detection_time = datetime.now()
 
-                    # 检查时间范围
-                    if start_time <= detection_time <= (end_time or datetime.now()):
-                        # 使用威胁名称作为报警类型标签
-                        alert_type = f"Threat Detected: {threat_name}"
+                # 检查时间范围
+                if start_time <= detection_time <= (end_time or datetime.now()):
+                    # 获取文件路径
+                    file_path = (item.get('FilePath') or 
+                               item.get('file_path') or 
+                               item.get('Resources') or 
+                               'Unknown')
 
-                        alert = EDRAlert(
-                            alert_id=str(item.get("ThreatID", f"quarantine_{hash(str(item))}")),
-                            timestamp=detection_time,
-                            severity="High",
-                            alert_type=alert_type,
-                            description=f"威胁已被检测并隔离: {threat_name}",
-                            additional_data=item
-                        )
-                        alerts.append(alert)
+                    # 创建告警描述
+                    source = item.get('source', 'Windows Defender')
+                    description = f"Windows Defender检测到威胁: {threat_name}"
+                    
+                    # 添加更多详细信息
+                    if item.get('Action'):
+                        description += f" (操作: {item.get('Action')})"
+                    if item.get('Severity'):
+                        description += f" (严重性: {item.get('Severity')})"
+
+                    # 确定严重性
+                    severity = "High"
+                    if any(keyword in threat_name.lower() for keyword in ['trojan', 'virus', 'malware', 'worm']):
+                        severity = "Critical"
+                    elif any(keyword in threat_name.lower() for keyword in ['adware', 'pup']):
+                        severity = "Medium"
+
+                    alert = EDRAlert(
+                        alert_id=str(hash(f"{threat_name}_{detection_time}_{file_path}")),
+                        timestamp=detection_time,
+                        severity=severity,
+                        alert_type=f"Threat Detected: {threat_name}",
+                        description=description,
+                        additional_data=item
+                    )
+                    alerts.append(alert)
+                    
             except Exception as e:
-                logger.error(f"转换隔离区数据失败: {str(e)}")
+                logger.error(f"转换威胁数据失败: {str(e)}")
                 continue
+                
         return alerts
 
     def _parse_event_log_output(self, output: str, filename: str = None) -> List[Dict[str, Any]]:
         """
-        解析Windows事件日志输出
+        解析Windows事件日志输出 - 专门处理Windows Defender事件日志
         """
         logger.info("解析Windows事件日志输出数据")
         records = []
 
         try:
-            # 简单解析事件日志输出
+            if not output or output.strip() == "":
+                logger.info("事件日志输出为空")
+                return records
+
+            # 检查是否包含威胁信息
+            threat_keywords = ['名称:', 'name:', 'threat', 'trojan', 'virus', 'malware', 'worm', 'defender']
+            if not any(keyword in output.lower() for keyword in threat_keywords):
+                logger.info("事件日志中未发现威胁相关信息")
+                return records
+
+            # 解析Format-List格式的事件日志输出
+            current_record = {}
+            current_message = []
             lines = output.strip().split('\n')
+
             for line in lines:
-                if 'Defender' in line and ('threat' in line.lower() or 'malware' in line.lower()):
+                line_stripped = line.strip()
+
+                if not line_stripped:
+                    # 空行表示一个记录结束
+                    if current_record and current_record.get('Message'):
+                        # 处理完整的消息
+                        full_message = '\n'.join(current_message)
+                        current_record['Message'] = full_message
+
+                        # 从消息中提取威胁信息
+                        threat_info = self._extract_threat_info_from_message(full_message)
+
+                        if threat_info['threat_name'] != 'Unknown':
+                            record = {
+                                'ThreatName': threat_info['threat_name'],
+                                'DetectionTime': current_record.get('TimeCreated', datetime.now().isoformat()),
+                                'FilePath': threat_info['file_path'] or filename or 'Unknown',
+                                'ProcessName': threat_info['process_name'],
+                                'Action': threat_info['action'],
+                                'Severity': threat_info['severity'],
+                                'EventId': current_record.get('Id', 'Unknown'),
+                                'Message': full_message,
+                                'source': 'Windows Event Log'
+                            }
+                            records.append(record)
+                            logger.info(f"解析到威胁: {threat_info['threat_name']}")
+
+                    # 重置当前记录
+                    current_record = {}
+                    current_message = []
+                    continue
+
+                # 解析键值对格式
+                if ':' in line_stripped and not line_stripped.startswith(' '):
+                    # 这是一个新的字段
+                    parts = line_stripped.split(':', 1)
+                    if len(parts) == 2:
+                        key = parts[0].strip()
+                        value = parts[1].strip()
+
+                        if key in ['TimeCreated', 'Id', 'LevelDisplayName']:
+                            current_record[key] = value
+                        elif key == 'Message':
+                            current_record[key] = value
+                            current_message = [value] if value else []
+                else:
+                    # 这是消息的续行
+                    if 'Message' in current_record:
+                        current_message.append(line_stripped)
+
+            # 处理最后一个记录
+            if current_record and current_record.get('Message'):
+                full_message = '\n'.join(current_message)
+                current_record['Message'] = full_message
+
+                threat_info = self._extract_threat_info_from_message(full_message)
+
+                if threat_info['threat_name'] != 'Unknown':
                     record = {
-                        'source': 'Windows Event Log',
-                        'detection_time': datetime.now().isoformat(),
-                        'threat_name': 'Unknown',
-                        'file_path': filename or 'Unknown',
-                        'raw_output': line.strip()
+                        'ThreatName': threat_info['threat_name'],
+                        'DetectionTime': current_record.get('TimeCreated', datetime.now().isoformat()),
+                        'FilePath': threat_info['file_path'] or filename or 'Unknown',
+                        'ProcessName': threat_info['process_name'],
+                        'Action': threat_info['action'],
+                        'Severity': threat_info['severity'],
+                        'EventId': current_record.get('Id', 'Unknown'),
+                        'Message': full_message,
+                        'source': 'Windows Event Log'
                     }
                     records.append(record)
+                    logger.info(f"解析到威胁: {threat_info['threat_name']}")
 
-            logger.info(f"解析到 {len(records)} 个事件日志记录")
+            logger.info(f"总共解析到 {len(records)} 个事件日志记录")
             return records
 
         except Exception as e:
             logger.error(f"解析事件日志输出失败: {str(e)}")
+            logger.error(f"原始输出: {output[:500]}...")
             return []
 
-    def _parse_threat_detection_output(self, output: str, filename: str = None) -> List[Dict[str, Any]]:
-        """
-        解析Get-MpThreatDetection输出
-        """
-        logger.info("解析威胁检测输出数据")
-        records = []
+    def _extract_threat_info_from_message(self, message: str) -> Dict[str, str]:
+        """从Windows Defender事件消息中提取威胁信息"""
+        threat_info = {
+            'threat_name': 'Unknown',
+            'file_path': 'Unknown',
+            'process_name': 'Unknown',
+            'action': 'Unknown',
+            'severity': 'Unknown'
+        }
 
         try:
-            # 简单解析威胁检测输出
-            lines = output.strip().split('\n')
-            for line in lines:
-                if line.strip() and not line.startswith('-') and 'DetectionTime' not in line:
-                    # 尝试解析表格格式的输出
-                    parts = line.split()
-                    if len(parts) >= 2:
-                        record = {
-                            'source': 'Get-MpThreatDetection',
-                            'detection_time': parts[0] if len(parts) > 0 else 'Unknown',
-                            'threat_name': parts[1] if len(parts) > 1 else 'Unknown',
-                            'file_path': filename or 'Unknown',
-                            'raw_output': line.strip()
-                        }
-                        records.append(record)
-
-            logger.info(f"解析到 {len(records)} 个威胁检测记录")
-            return records
-
-        except Exception as e:
-            logger.error(f"解析威胁检测输出失败: {str(e)}")
-            return []
-
-    async def _extract_file_from_vm(self, vm_file_path: str) -> Optional[str]:
-        """从虚拟机中提取文件内容"""
-        try:
-            with tempfile.NamedTemporaryFile(mode='w+', delete=False, suffix='.txt') as temp_file:
-                temp_path = temp_file.name
-
-            # 使用VBoxManage copyfrom
-            vboxmanage_path = r"C:\Program Files\Oracle\VirtualBox\VBoxManage.exe"
-            copy_cmd = [
-                vboxmanage_path, "guestcontrol", self.vm_name, "copyfrom",
-                "--username", self.username, "--password", self.password,
-                vm_file_path, temp_path
+            # 提取威胁名称 - 支持中英文
+            # 中文格式: "名称: Worm:Win32/Conficker.D"
+            # 英文格式: "Name: Worm:Win32/Conficker.D"
+            name_patterns = [
+                r'名称:\s*([^\r\n]+)',
+                r'Name:\s*([^\r\n]+)',
+                r'ThreatName:\s*([^\r\n]+)'
             ]
 
-            result = subprocess.run(copy_cmd, capture_output=True, text=True, timeout=60)
+            for pattern in name_patterns:
+                match = re.search(pattern, message, re.IGNORECASE | re.MULTILINE)
+                if match:
+                    threat_info['threat_name'] = match.group(1).strip()
+                    break
 
-            if result.returncode == 0 and os.path.exists(temp_path):
-                with open(temp_path, 'r', encoding='utf-8', errors='ignore') as f:
-                    content = f.read()
-
-                # 清理临时文件
-                try:
-                    os.unlink(temp_path)
-                except:
-                    pass
-
-                return content
-            else:
-                logger.error(f"文件提取失败: {result.stderr}")
-                return None
-
-        except Exception as e:
-            logger.error(f"文件提取异常: {str(e)}")
-            return None
-
-    async def _get_mpcmdrun_via_copyto(self) -> List[Dict[str, Any]]:
-        """使用copyto + PowerShell脚本方法获取MpCmdRun输出"""
-        try:
-            logger.info("使用copyto + PowerShell脚本方法获取MpCmdRun输出...")
-
-            # 步骤1: 创建本地PowerShell脚本
-            import tempfile
-            with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.ps1', encoding='utf-8') as ps_file:
-                ps_script = f"""# MpCmdRun Quarantine Information Collection
-Write-Host "Executing MpCmdRun to get quarantine information..."
-
-# 输出文件
-$outputFile = "C:\\Users\\{self.username}\\Desktop\\mpcmdrun_result.txt"
-
-# 执行MpCmdRun -Restore -ListAll
-try {{
-    $mpcmdResult = & 'C:\\Program Files\\Windows Defender\\MpCmdRun.exe' -Restore -ListAll 2>&1
-    $mpcmdResult | Out-File -FilePath $outputFile -Encoding UTF8
-    Write-Host "MpCmdRun execution completed"
-}} catch {{
-    "MpCmdRun Error: $_" | Out-File -FilePath $outputFile -Encoding UTF8
-    Write-Host "MpCmdRun execution failed: $_"
-}}
-
-Write-Host "Script completed successfully"
-"""
-                ps_file.write(ps_script)
-                local_ps_path = ps_file.name
-
-            logger.info("本地PowerShell脚本创建成功")
-
-            # 步骤2: 复制PowerShell脚本到虚拟机
-            vm_ps_path = f"C:\\Users\\{self.username}\\Desktop\\mpcmdrun_script.ps1"
-
-            # 使用VBoxManage copyto
-            vboxmanage_path = r"C:\Program Files\Oracle\VirtualBox\VBoxManage.exe"
-            copy_cmd = [
-                vboxmanage_path, "guestcontrol", self.vm_name, "copyto",
-                "--username", self.username, "--password", self.password,
-                local_ps_path, vm_ps_path
+            # 提取文件路径
+            # 格式: "路径: file:_C:\Users\vboxuser\AppData\Local\Temp\876765086.tmp"
+            path_patterns = [
+                r'路径:\s*file:_([^;]+)',
+                r'Path:\s*file:_([^;]+)',
+                r'file:([^;,\s]+)'
             ]
 
-            result = subprocess.run(copy_cmd, capture_output=True, text=True, timeout=60)
+            for pattern in path_patterns:
+                match = re.search(pattern, message, re.IGNORECASE | re.MULTILINE)
+                if match:
+                    threat_info['file_path'] = match.group(1).strip()
+                    break
 
-            if result.returncode != 0:
-                logger.error(f"PowerShell脚本上传失败: {result.stderr}")
-                return []
-
-            logger.info("PowerShell脚本上传成功")
-
-            # 步骤3: 执行PowerShell脚本
-            exec_cmd = f'powershell.exe -ExecutionPolicy Bypass -File {vm_ps_path}'
-
-            success, output = await self.vm_controller.execute_command_in_vm(
-                self.vm_name, exec_cmd, self.username, self.password, timeout=120
-            )
-
-            if not success:
-                logger.error(f"PowerShell脚本执行失败: {output}")
-                return []
-
-            logger.info(f"PowerShell脚本执行成功: {output}")
-
-            # 步骤4: 等待执行完成
-            await asyncio.sleep(5)
-
-            # 步骤5: 使用copyfrom提取结果文件
-            logger.info("提取MpCmdRun结果文件...")
-            result_file = f"C:\\Users\\{self.username}\\Desktop\\mpcmdrun_result.txt"
-            local_content = await self._extract_file_from_vm(result_file)
-
-            if local_content:
-                logger.info(f"成功获取MpCmdRun输出 ({len(local_content)} 字符)")
-                logger.info(f"MpCmdRun输出内容: {local_content[:200]}...")
-
-                # 检查是否包含威胁信息
-                if any(keyword in local_content.lower() for keyword in ["quarantined", "threatname", "trojan", "malware", "virus", "threat"]):
-                    return self._parse_mpcmdrun_output(local_content)
-                else:
-                    logger.info("MpCmdRun执行成功，但当前无隔离项目")
-                    return []
-            else:
-                logger.warning("未能提取MpCmdRun结果文件")
-                return []
-
-            # 清理本地文件
-            try:
-                os.unlink(local_ps_path)
-            except:
-                pass
-
-        except Exception as e:
-            logger.error(f"copyto + PowerShell脚本方法失败: {str(e)}")
-            return []
-
-    async def _get_event_log_via_batch(self) -> List[Dict[str, Any]]:
-        """使用批处理文件方法获取Windows事件日志"""
-        try:
-            logger.info("使用批处理文件方法获取Windows事件日志...")
-
-            # 步骤1: 创建批处理文件
-            batch_file = f"C:\\Users\\{self.username}\\Desktop\\get_eventlog.bat"
-            result_file = f"C:\\Users\\{self.username}\\Desktop\\eventlog_result.txt"
-
-            # Windows事件日志PowerShell命令
-            powershell_cmd = "powershell -Command \"Get-WinEvent -FilterHashtable @{LogName='Microsoft-Windows-Windows Defender/Operational'; ID=1116,1117} -MaxEvents 10 | Select-Object TimeCreated, Id, LevelDisplayName, Message | Format-Table -AutoSize\""
-
-            # 创建批处理文件的命令
-            create_batch_cmd = f"""echo @echo off > {batch_file} && echo echo Getting event logs... >> {batch_file} && echo {powershell_cmd} ^> {result_file} 2^>^&1 >> {batch_file} && echo echo Event log check completed. >> {batch_file}"""
-
-            success, output = await self.vm_controller.execute_command_in_vm(
-                self.vm_name, create_batch_cmd, self.username, self.password, timeout=30
-            )
-
-            if not success:
-                logger.error(f"创建事件日志批处理文件失败: {output}")
-                return []
-
-            # 步骤2: 执行批处理文件
-            logger.info("执行事件日志批处理文件...")
-            success, output = await self.vm_controller.execute_command_in_vm(
-                self.vm_name, batch_file, self.username, self.password, timeout=120
-            )
-
-            if not success:
-                logger.error(f"执行事件日志批处理文件失败: {output}")
-                return []
-
-            # 步骤3: 等待执行完成
-            await asyncio.sleep(5)
-
-            # 步骤4: 使用copyfrom提取结果文件
-            logger.info("提取事件日志结果文件...")
-            local_content = await self._extract_file_from_vm(result_file)
-
-            if local_content:
-                logger.info(f"成功获取事件日志输出 ({len(local_content)} 字符)")
-                print("=" * 60)
-                print("🎉 Windows事件日志真实输出:")
-                print(local_content)
-                print("=" * 60)
-                return self._parse_event_log_output(local_content)
-            else:
-                logger.warning("未能提取事件日志结果文件")
-                return []
-
-        except Exception as e:
-            logger.error(f"事件日志批处理文件方法失败: {str(e)}")
-            return []
-
-    async def _get_threat_detection_via_batch(self) -> List[Dict[str, Any]]:
-        """使用批处理文件方法获取威胁检测信息"""
-        try:
-            logger.info("使用批处理文件方法获取威胁检测信息...")
-
-            # 步骤1: 创建批处理文件
-            batch_file = f"C:\\Users\\{self.username}\\Desktop\\get_threats.bat"
-            result_file = f"C:\\Users\\{self.username}\\Desktop\\threats_result.txt"
-
-            # 威胁检测PowerShell命令
-            powershell_cmd = "powershell -Command \"Get-MpThreatDetection | Select-Object DetectionTime, ThreatName, Resources, ProcessName | Format-Table -AutoSize\""
-
-            # 创建批处理文件的命令
-            create_batch_cmd = f"""echo @echo off > {batch_file} && echo echo Getting threat detections... >> {batch_file} && echo {powershell_cmd} ^> {result_file} 2^>^&1 >> {batch_file} && echo echo Threat detection check completed. >> {batch_file}"""
-
-            success, output = await self.vm_controller.execute_command_in_vm(
-                self.vm_name, create_batch_cmd, self.username, self.password, timeout=30
-            )
-
-            if not success:
-                logger.error(f"创建威胁检测批处理文件失败: {output}")
-                return []
-
-            # 步骤2: 执行批处理文件
-            logger.info("执行威胁检测批处理文件...")
-            success, output = await self.vm_controller.execute_command_in_vm(
-                self.vm_name, batch_file, self.username, self.password, timeout=120
-            )
-
-            if not success:
-                logger.error(f"执行威胁检测批处理文件失败: {output}")
-                return []
-
-            # 步骤3: 等待执行完成
-            await asyncio.sleep(5)
-
-            # 步骤4: 使用copyfrom提取结果文件
-            logger.info("提取威胁检测结果文件...")
-            local_content = await self._extract_file_from_vm(result_file)
-
-            if local_content:
-                logger.info(f"成功获取威胁检测输出 ({len(local_content)} 字符)")
-                print("=" * 60)
-                print("🎉 威胁检测真实输出:")
-                print(local_content)
-                print("=" * 60)
-                return self._parse_threat_detection_output(local_content)
-            else:
-                logger.warning("未能提取威胁检测结果文件")
-                return []
-
-        except Exception as e:
-            logger.error(f"威胁检测批处理文件方法失败: {str(e)}")
-            return []
-
-    async def _copy_to_vm(self, local_file: str, vm_file: str) -> bool:
-        """复制文件到虚拟机"""
-        try:
-            vboxmanage_path = r"C:\Program Files\Oracle\VirtualBox\VBoxManage.exe"
-            copy_cmd = [
-                vboxmanage_path, "guestcontrol", self.vm_name, "copyto",
-                "--username", self.username, "--password", self.password,
-                local_file, vm_file
+            # 提取进程名称
+            # 格式: "进程名称: C:\Windows\SysWOW64\rundll32.exe"
+            process_patterns = [
+                r'进程名称:\s*([^\r\n]+)',
+                r'Process Name:\s*([^\r\n]+)',
+                r'ProcessName:\s*([^\r\n]+)'
             ]
 
-            result = subprocess.run(copy_cmd, capture_output=True, text=True, timeout=60)
+            for pattern in process_patterns:
+                match = re.search(pattern, message, re.IGNORECASE | re.MULTILINE)
+                if match:
+                    threat_info['process_name'] = match.group(1).strip()
+                    break
 
-            if result.returncode == 0:
-                logger.info(f"文件复制成功: {local_file} -> {vm_file}")
-                return True
-            else:
-                logger.error(f"文件复制失败: {result.stderr}")
-                return False
-
-        except Exception as e:
-            logger.error(f"文件复制异常: {str(e)}")
-            return False
-
-    async def _get_mpcmdrun_via_copyto(self) -> List[Dict[str, Any]]:
-        """使用copyto方法获取MpCmdRun输出 - 最终解决方案"""
-        try:
-            logger.info("使用copyto方法获取MpCmdRun输出...")
-
-            # 创建本地PowerShell脚本
-            with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.ps1', encoding='utf-8') as ps_file:
-                ps_script = f"""# Windows Defender MpCmdRun Script - Final Solution
-Write-Host "Starting Windows Defender check..."
-
-try {{
-    # 输出文件路径
-    $outputFile = "C:\\Users\\{self.username}\\Desktop\\mpcmd_final_result.txt"
-    $errorFile = "C:\\Users\\{self.username}\\Desktop\\mpcmd_final_error.txt"
-
-    # 方法1: 直接执行MpCmdRun
-    Write-Host "Executing MpCmdRun directly..."
-
-    try {{
-        $result = & 'C:\\Program Files\\Windows Defender\\MpCmdRun.exe' -Restore -ListAll 2>&1
-        $result | Out-File -FilePath $outputFile -Encoding UTF8
-        Write-Host "MpCmdRun direct execution completed"
-    }} catch {{
-        Write-Host "Direct execution failed: $_"
-        $_.Exception.Message | Out-File -FilePath $errorFile -Encoding UTF8
-    }}
-
-    # 方法2: 使用Start-Process
-    Write-Host "Trying Start-Process method..."
-
-    try {{
-        $process = Start-Process -FilePath 'C:\\Program Files\\Windows Defender\\MpCmdRun.exe' -ArgumentList '-Restore', '-ListAll' -Wait -NoNewWindow -PassThru -RedirectStandardOutput $outputFile -RedirectStandardError $errorFile
-        Write-Host "Start-Process completed with exit code: $($process.ExitCode)"
-    }} catch {{
-        Write-Host "Start-Process failed: $_"
-    }}
-
-    # 检查输出文件
-    if (Test-Path $outputFile) {{
-        $content = Get-Content $outputFile -Raw
-        Write-Host "Output file created with $($content.Length) characters"
-    }}
-
-    # 检查错误文件
-    if (Test-Path $errorFile) {{
-        $errorContent = Get-Content $errorFile -Raw
-        if ($errorContent.Length -gt 0) {{
-            Write-Host "Error file created with $($errorContent.Length) characters"
-        }}
-    }}
-
-}} catch {{
-    Write-Host "Script error: $_"
-    $_.Exception.Message | Out-File -FilePath "C:\\Users\\{self.username}\\Desktop\\script_error.txt" -Encoding UTF8
-}}
-
-Write-Host "Script completed successfully"
-"""
-                ps_file.write(ps_script)
-                local_ps_path = ps_file.name
-
-            logger.info(f"本地PowerShell脚本创建: {local_ps_path}")
-
-            # 复制脚本到虚拟机
-            vm_ps_path = f"C:\\Users\\{self.username}\\Desktop\\mpcmd_final_script.ps1"
-
-            if not await self._copy_to_vm(local_ps_path, vm_ps_path):
-                logger.error("PowerShell脚本复制失败")
-                return []
-
-            # 执行PowerShell脚本
-            logger.info("执行PowerShell脚本...")
-            exec_cmd = f'powershell.exe -ExecutionPolicy Bypass -File {vm_ps_path}'
-
-            success, output = await self.vm_controller.execute_command_in_vm(
-                self.vm_name, exec_cmd, self.username, self.password, timeout=180
-            )
-
-            if not success:
-                logger.error(f"PowerShell脚本执行失败: {output}")
-                return []
-
-            logger.info(f"PowerShell脚本执行成功: {output}")
-
-            # 等待执行完成
-            await asyncio.sleep(10)
-
-            # 提取结果文件
-            result_files = [
-                f"C:\\Users\\{self.username}\\Desktop\\mpcmd_final_result.txt",
-                f"C:\\Users\\{self.username}\\Desktop\\mpcmd_final_error.txt"
+            # 提取操作
+            # 格式: "操作: 隔离"
+            action_patterns = [
+                r'操作:\s*([^\r\n]+)',
+                r'Action:\s*([^\r\n]+)'
             ]
 
-            for result_file in result_files:
-                content = await self._extract_file_from_vm(result_file)
+            for pattern in action_patterns:
+                match = re.search(pattern, message, re.IGNORECASE | re.MULTILINE)
+                if match:
+                    threat_info['action'] = match.group(1).strip()
+                    break
 
-                if content and len(content.strip()) > 0:
-                    logger.info(f"成功获取MpCmdRun输出 ({len(content)} 字符)")
-                    print("=" * 60)
-                    print("🎉 MpCmdRun真实输出 (copyto方法):")
-                    print(content)
-                    print("=" * 60)
+            # 提取严重性
+            # 格式: "严重性: 严重"
+            severity_patterns = [
+                r'严重性:\s*([^\r\n]+)',
+                r'Severity:\s*([^\r\n]+)'
+            ]
 
-                    # 检查是否包含威胁信息
-                    if any(keyword in content.lower() for keyword in ["quarantined", "threatname", "trojan", "malware", "virus", "threat"]):
-                        return self._parse_mpcmdrun_output(content)
-                    elif "no items" in content.lower() or len(content.strip()) > 50:
-                        logger.info("MpCmdRun执行成功，但当前无隔离项目")
-                        return []
-
-            logger.warning("未能获取有效的MpCmdRun输出")
-            return []
+            for pattern in severity_patterns:
+                match = re.search(pattern, message, re.IGNORECASE | re.MULTILINE)
+                if match:
+                    threat_info['severity'] = match.group(1).strip()
+                    break
 
         except Exception as e:
-            logger.error(f"copyto方法失败: {str(e)}")
-            return []
-        finally:
-            # 清理本地文件
-            try:
-                if 'local_ps_path' in locals():
-                    os.unlink(local_ps_path)
-            except:
-                pass
+            logger.error(f"提取威胁信息失败: {str(e)}")
+
+        return threat_info
