@@ -35,7 +35,7 @@ class EDRAlert(BaseModel):
     timestamp: datetime
     severity: str
     alert_type: str
-    description: str
+     
     file_hash: Optional[str] = None
     process_name: Optional[str] = None
     command_line: Optional[str] = None

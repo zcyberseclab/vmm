@@ -8,7 +8,7 @@ Windows Defender EDR Client Implementation - 简化版本
 import os
 import re
 import asyncio
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import List, Dict, Any, Optional
 
 import pytz
@@ -43,7 +43,7 @@ class WindowsDefenderEDRClient(EDRClient):
 
             # 转换为EDR告警
             if threat_data:
-                alerts.extend(self._convert_threat_data_to_alerts(threat_data, start_time, end_time))
+                alerts.extend(self._convert_threat_data_to_alerts(threat_data, start_time, end_time, file_name))
 
             logger.info(f"从Windows Defender获取到 {len(alerts)} 个告警")
             return alerts
@@ -99,18 +99,24 @@ class WindowsDefenderEDRClient(EDRClient):
             logger.error(f"获取威胁事件日志失败: {str(e)}")
             return []
 
-    def _convert_threat_data_to_alerts(self, threat_data: List[Dict[str, Any]], 
-                                     start_time: datetime, end_time: Optional[datetime] = None) -> List[EDRAlert]:
+    def _convert_threat_data_to_alerts(self, threat_data: List[Dict[str, Any]],
+                                     start_time: datetime, end_time: Optional[datetime] = None,
+                                     file_name: Optional[str] = None) -> List[EDRAlert]:
         """
         将威胁数据转换为EDR告警
         """
         alerts = []
-        for item in threat_data:
+        print(f"开始转换 {len(threat_data)} 条威胁数据为EDR告警...")
+        print(f"时间范围: start_time={start_time}, end_time={end_time}")
+
+        for i, item in enumerate(threat_data):
             try:
+                print(f"处理第 {i+1} 条记录...")
                 # 检查是否有威胁名称
                 threat_name = item.get('ThreatName') or item.get('threat_name')
+                print(f"威胁名称: {threat_name}")
                 if not threat_name or threat_name == 'Unknown':
-                    logger.debug("跳过没有威胁名称的记录")
+                    print("跳过没有威胁名称的记录")
                     continue
 
                 # 获取检测时间
@@ -120,44 +126,71 @@ class WindowsDefenderEDRClient(EDRClient):
                 
                 if detection_time_str:
                     try:
+                        print(f"原始检测时间字符串: '{detection_time_str}'")
                         # 尝试解析不同的时间格式
                         if isinstance(detection_time_str, str):
                             # 移除时区信息进行解析
-                            time_part = detection_time_str.split(' (')[0].split('.')[0]
-                            # 尝试多种时间格式
-                            for fmt in ['%Y/%m/%d %H:%M:%S', '%Y-%m-%d %H:%M:%S', '%m/%d/%Y %H:%M:%S']:
+                            time_part = detection_time_str.split(' (')[0].split('.')[0].strip()
+                            print(f"处理后的时间字符串: '{time_part}'")
+
+                            # 尝试多种时间格式，包括中文格式
+                            time_formats = [
+                                '%Y/%m/%d %H:%M:%S',    # 2025/9/27 15:02:25
+                                '%Y-%m-%d %H:%M:%S',    # 2025-09-27 15:02:25
+                                '%m/%d/%Y %H:%M:%S',    # 9/27/2025 15:02:25
+                                '%Y年%m月%d日 %H:%M:%S',  # 2025年9月27日 15:02:25
+                                '%Y/%m/%d %H:%M',       # 2025/9/27 15:02
+                                '%Y-%m-%d %H:%M',       # 2025-09-27 15:02
+                            ]
+
+                            detection_time = None
+                            for fmt in time_formats:
                                 try:
                                     detection_time = datetime.strptime(time_part, fmt)
+                                    print(f"成功解析时间，使用格式: {fmt} -> {detection_time}")
                                     break
-                                except ValueError:
+                                except ValueError as e:
+                                    print(f"格式 {fmt} 解析失败: {e}")
                                     continue
-                            else:
+
+                            if detection_time is None:
                                 # 如果所有格式都失败，使用当前时间
+                                print("所有时间格式解析都失败，使用当前时间")
                                 detection_time = datetime.now()
                         else:
                             detection_time = detection_time_str
-                    except (ValueError, AttributeError):
+                    except (ValueError, AttributeError) as e:
+                        print(f"时间解析异常: {e}")
                         detection_time = datetime.now()
                 else:
+                    print("没有检测时间字符串，使用当前时间")
                     detection_time = datetime.now()
 
-                # 检查时间范围
-                if start_time <= detection_time <= (end_time or datetime.now()):
+                # 检查时间范围 - 对于Windows Defender，我们放宽时间限制
+                # 因为威胁检测时间可能在分析开始时间之前（历史检测记录）
+                end_time_check = end_time or datetime.now()
+                print(f"时间范围检查: start_time={start_time}, detection_time={detection_time}, end_time={end_time_check}")
+
+                # 如果指定了文件名，优先匹配文件名，时间范围放宽
+                time_range_ok = False
+                if file_name and item.get('FilePath'):
+                    # 如果文件路径匹配，放宽时间限制到过去24小时
+                    past_24h = datetime.now() - timedelta(hours=24)
+                    time_range_ok = detection_time >= past_24h
+                    print(f"文件名匹配模式，时间范围: {past_24h} <= {detection_time} = {time_range_ok}")
+                else:
+                    # 标准时间范围检查，但放宽到过去1小时
+                    past_1h = start_time - timedelta(hours=1)
+                    time_range_ok = past_1h <= detection_time <= end_time_check
+                    print(f"标准时间范围检查: {past_1h} <= {detection_time} <= {end_time_check} = {time_range_ok}")
+
+                if time_range_ok:
                     # 获取文件路径
                     file_path = (item.get('FilePath') or 
                                item.get('file_path') or 
                                item.get('Resources') or 
                                'Unknown')
-
-                    # 创建告警描述
-                    description = f"Windows Defender检测到威胁: {threat_name}"
-                    
-                    # 添加更多详细信息
-                    if item.get('Action'):
-                        description += f" (操作: {item.get('Action')})"
-                    if item.get('Severity'):
-                        description += f" (严重性: {item.get('Severity')})"
-
+ 
                     # 确定严重性
                     severity = "High"
                     if any(keyword in threat_name.lower() for keyword in ['trojan', 'virus', 'malware', 'worm']):
@@ -169,8 +202,7 @@ class WindowsDefenderEDRClient(EDRClient):
                         alert_id=str(hash(f"{threat_name}_{detection_time}_{file_path}")),
                         timestamp=detection_time,
                         severity=severity,
-                        alert_type=f"Threat Detected: {threat_name}",
-                        description=description,
+                        alert_type=f"{threat_name}",
                         additional_data=item
                     )
                     alerts.append(alert)
@@ -201,7 +233,8 @@ class WindowsDefenderEDRClient(EDRClient):
 
             # 解析Format-List格式的事件日志输出
             current_record = {}
-            current_message = []
+            current_message_lines = []
+            in_message = False
             lines = output.strip().split('\n')
 
             for line in lines:
@@ -209,73 +242,118 @@ class WindowsDefenderEDRClient(EDRClient):
 
                 if not line_stripped:
                     # 空行表示一个记录结束
-                    if current_record and (current_record.get('Message') or current_record.get('TimeCreated')):
+                    if current_record and current_record.get('TimeCreated'):
                         # 处理完整的消息
-                        full_message = '\n'.join(current_message)
+                        full_message = '\n'.join(current_message_lines)
                         current_record['Message'] = full_message
 
                         # 从消息中提取威胁信息
                         threat_info = self._extract_threat_info_from_message(full_message)
 
+                        # 如果找到威胁名称，或者指定了文件名且路径匹配
+                        should_include = False
                         if threat_info['threat_name'] != 'Unknown':
+                            should_include = True
+                        elif filename and threat_info['file_path'] != 'Unknown':
+                            # 检查文件路径是否包含指定的文件名
+                            if filename.lower() in threat_info['file_path'].lower():
+                                should_include = True
+
+                        if should_include:
+                            # 构建原始威胁数据的JSON格式
+                            raw_threat_data = {
+                                '名称': threat_info['threat_name'],
+                                '严重性': threat_info['severity'],
+                                '路径': threat_info['file_path'],
+                                '进程名称': threat_info['process_name'],
+                                '操作': threat_info['action'],
+                                '检测时间': current_record.get('TimeCreated'),
+                                '事件ID': current_record.get('Id'),
+                                '完整消息': full_message
+                            }
+
                             record = {
                                 'ThreatName': threat_info['threat_name'],
                                 'DetectionTime': current_record.get('TimeCreated', datetime.now().isoformat()),
-                                'FilePath': threat_info['file_path'] or filename or 'Unknown',
+                                'FilePath': threat_info['file_path'],
                                 'ProcessName': threat_info['process_name'],
                                 'Action': threat_info['action'],
                                 'Severity': threat_info['severity'],
                                 'EventId': current_record.get('Id', 'Unknown'),
-                                'Message': full_message,
+                                'RawData': raw_threat_data,  # 添加原始数据
                                 'source': 'Windows Event Log'
                             }
                             records.append(record)
-                            logger.info(f"解析到威胁: {threat_info['threat_name']}")
+                            logger.info(f"解析到威胁: {threat_info['threat_name']} -> {threat_info['file_path']}")
 
                     # 重置当前记录
                     current_record = {}
-                    current_message = []
+                    current_message_lines = []
+                    in_message = False
                     continue
 
-                # 解析键值对格式
-                if ':' in line_stripped and not line_stripped.startswith(' '):
-                    # 这是一个新的字段
-                    parts = line_stripped.split(':', 1)
+                # 解析键值对格式 - 检查是否是顶级字段
+                if ':' in line and not line.startswith(' ') and not line.startswith('\t'):
+                    # 这是一个新的顶级字段
+                    parts = line.split(':', 1)
                     if len(parts) == 2:
                         key = parts[0].strip()
                         value = parts[1].strip()
 
                         if key in ['TimeCreated', 'Id', 'LevelDisplayName']:
                             current_record[key] = value
+                            in_message = False
                         elif key == 'Message':
                             current_record[key] = value
-                            current_message = [value] if value else []
+                            current_message_lines = [value] if value else []
+                            in_message = True
                 else:
-                    # 这是消息的续行
-                    if 'Message' in current_record:
-                        current_message.append(line_stripped)
+                    # 这是消息的续行或者缩进内容
+                    if in_message:
+                        current_message_lines.append(line)  # 保留原始格式，包括缩进
 
             # 处理最后一个记录
-            if current_record and current_record.get('Message'):
-                full_message = '\n'.join(current_message)
+            if current_record and current_record.get('TimeCreated'):
+                full_message = '\n'.join(current_message_lines)
                 current_record['Message'] = full_message
 
                 threat_info = self._extract_threat_info_from_message(full_message)
 
+                # 如果找到威胁名称，或者指定了文件名且路径匹配
+                should_include = False
                 if threat_info['threat_name'] != 'Unknown':
+                    should_include = True
+                elif filename and threat_info['file_path'] != 'Unknown':
+                    # 检查文件路径是否包含指定的文件名
+                    if filename.lower() in threat_info['file_path'].lower():
+                        should_include = True
+
+                if should_include:
+                    # 构建原始威胁数据的JSON格式
+                    raw_threat_data = {
+                        '名称': threat_info['threat_name'],
+                        '严重性': threat_info['severity'],
+                        '路径': threat_info['file_path'],
+                        '进程名称': threat_info['process_name'],
+                        '操作': threat_info['action'],
+                        '检测时间': current_record.get('TimeCreated'),
+                        '事件ID': current_record.get('Id'),
+                        '完整消息': full_message
+                    }
+
                     record = {
                         'ThreatName': threat_info['threat_name'],
                         'DetectionTime': current_record.get('TimeCreated', datetime.now().isoformat()),
-                        'FilePath': threat_info['file_path'] or filename or 'Unknown',
+                        'FilePath': threat_info['file_path'],
                         'ProcessName': threat_info['process_name'],
                         'Action': threat_info['action'],
                         'Severity': threat_info['severity'],
                         'EventId': current_record.get('Id', 'Unknown'),
-                        'Message': full_message,
+                        'RawData': raw_threat_data,  # 添加原始数据
                         'source': 'Windows Event Log'
                     }
                     records.append(record)
-                    logger.info(f"解析到威胁: {threat_info['threat_name']}")
+                    logger.info(f"解析到威胁: {threat_info['threat_name']} -> {threat_info['file_path']}")
 
             logger.info(f"总共解析到 {len(records)} 个事件日志记录")
             return records
