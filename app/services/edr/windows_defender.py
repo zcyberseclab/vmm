@@ -19,11 +19,6 @@ from .base import EDRClient
 
 
 class WindowsDefenderEDRClient(EDRClient):
-    """
-    Windows Defender EDR客户端 - 简化版本
-    
-    只使用最可靠的方法：通过Windows事件日志获取威胁检测信息
-    """
 
     async def get_alerts(self, start_time: datetime, end_time: Optional[datetime] = None,
                         file_hash: Optional[str] = None, file_name: Optional[str] = None) -> List[EDRAlert]:
