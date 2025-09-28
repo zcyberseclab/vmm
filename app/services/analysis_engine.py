@@ -408,8 +408,8 @@ class AnalysisEngine:
             # 创建唯一键：source + alert_type + file_path
             key = (alert.source, alert.alert_type, alert.file_path)
 
-            # 获取detection_time，如果没有则使用timestamp
-            current_detection_time = alert.detection_time or alert.timestamp.isoformat()
+            # 使用detection_time进行时间比较
+            current_detection_time = alert.detection_time or ""
 
             if key not in alert_map:
                 # 第一次遇到这个组合，直接添加
@@ -418,15 +418,23 @@ class AnalysisEngine:
             else:
                 # 已存在相同组合，比较detection_time
                 existing_alert = alert_map[key]
-                existing_detection_time = existing_alert.detection_time or existing_alert.timestamp.isoformat()
+                existing_detection_time = existing_alert.detection_time or ""
 
-                # 比较时间字符串（ISO格式可以直接比较）
-                if current_detection_time > existing_detection_time:
-                    # 当前报警更新，替换
+                # 比较时间字符串（如果都有值才比较，否则保留第一个）
+                if current_detection_time and existing_detection_time:
+                    if current_detection_time > existing_detection_time:
+                        # 当前报警更新，替换
+                        alert_map[key] = alert
+                        logger.debug(f"替换报警: {alert.source} - {alert.alert_type} - {alert.file_path} - {existing_detection_time} -> {current_detection_time}")
+                    else:
+                        logger.debug(f"保留原报警: {alert.source} - {alert.alert_type} - {alert.file_path} - {existing_detection_time} (跳过 {current_detection_time})")
+                elif current_detection_time and not existing_detection_time:
+                    # 当前有时间，现有的没有时间，替换
                     alert_map[key] = alert
-                    logger.debug(f"替换报警: {alert.source} - {alert.alert_type} - {alert.file_path} - {existing_detection_time} -> {current_detection_time}")
+                    logger.debug(f"替换报警(时间更完整): {alert.source} - {alert.alert_type} - {alert.file_path}")
                 else:
-                    logger.debug(f"保留原报警: {alert.source} - {alert.alert_type} - {alert.file_path} - {existing_detection_time} (跳过 {current_detection_time})")
+                    # 保留现有的报警
+                    logger.debug(f"保留原报警: {alert.source} - {alert.alert_type} - {alert.file_path}")
 
         # 返回去重后的报警列表
         deduplicated_alerts = list(alert_map.values())

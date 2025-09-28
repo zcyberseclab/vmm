@@ -161,12 +161,11 @@ class KasperskyEDRClient(EDRClient):
                 # Check time range
                 if start_time <= detection_time <= (end_time or datetime.now()):
                     alert = EDRAlert(
-                        alert_id=str(item.get("AlertID", f"kaspersky_{hash(str(item))}")),
-                        timestamp=detection_time,
                         severity="High",
                         alert_type=f"Kaspersky Threat: {threat_name}",
-                        description=f"Kaspersky检测到威胁: {threat_name}",
-                        additional_data=item
+                        detect_reason="KasperskyAPI",  # Kaspersky API检测
+                        detection_time=detection_time.isoformat() if isinstance(detection_time, datetime) else str(detection_time),
+                        source='Kaspersky'
                     )
                     alerts.append(alert)
                     

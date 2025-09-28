@@ -204,16 +204,16 @@ class WindowsDefenderEDRClient(EDRClient):
 
                     # 创建告警，直接将所有信息放在主字段中
                     alert = EDRAlert(
-                        timestamp=detection_time,
+                
                         severity=severity,
                         alert_type=threat_name,
                         process_name=process_name if process_name != 'Unknown' else None,
-                        command_line=None,  # Windows Defender通常不提供命令行信息
-                        source_ip=None,     # 本地检测，无源IP
-                        destination_ip=None, # 本地检测，无目标IP
+                        command_line=None,  
+                        source_ip=None,     
+                        destination_ip=None,  
 
-                        # Windows Defender 特定字段
-                        detection_time=item.get('DetectionTime'),
+                        detect_reason="WinEVT",  
+                        detection_time=item.get('DetectionTime'), 
                         event_id=item.get('EventId'),
                         file_path=file_path if file_path != 'Unknown' else None,
                         source='Windows Defender'

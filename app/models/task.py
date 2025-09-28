@@ -32,17 +32,16 @@ class VMTaskStatus(str, Enum):
 class EDRAlert(BaseModel):
     """EDR告警信息"""
 
-    timestamp: datetime
     severity: str
     alert_type: str
 
-    file_hash: Optional[str] = None
     process_name: Optional[str] = None
     command_line: Optional[str] = None
     source_ip: Optional[str] = None
     destination_ip: Optional[str] = None
 
-    # Windows Defender 特定字段
+    # EDR 特定字段
+    detect_reason: Optional[str] = None  # 检测方式/原因
     detection_time: Optional[str] = None
     event_id: Optional[str] = None
     file_path: Optional[str] = None
@@ -56,8 +55,7 @@ class VMTaskResult(BaseModel):
     end_time: Optional[datetime] = None
     error_message: Optional[str] = None
     alerts: List[EDRAlert] = Field(default_factory=list)
-    metadata: Dict[str, Any] = Field(default_factory=dict)
-
+    
 
 class AnalysisTask(BaseModel):
     """分析任务模型"""
