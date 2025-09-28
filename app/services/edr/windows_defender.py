@@ -166,31 +166,35 @@ class WindowsDefenderEDRClient(EDRClient):
                     print("没有检测时间字符串，使用当前时间")
                     detection_time = datetime.now()
 
-                # 检查时间范围 - 对于Windows Defender，我们放宽时间限制
-                # 因为威胁检测时间可能在分析开始时间之前（历史检测记录）
+             
                 end_time_check = end_time or datetime.now()
                 print(f"时间范围检查: start_time={start_time}, detection_time={detection_time}, end_time={end_time_check}")
 
-                # 如果指定了文件名，优先匹配文件名，时间范围放宽
+             
                 time_range_ok = False
                 if file_name and item.get('FilePath'):
-                    # 如果文件路径匹配，放宽时间限制到过去24小时
+                  
                     past_24h = datetime.now() - timedelta(hours=24)
                     time_range_ok = detection_time >= past_24h
                     print(f"文件名匹配模式，时间范围: {past_24h} <= {detection_time} = {time_range_ok}")
                 else:
-                    # 标准时间范围检查，但放宽到过去1小时
+            
                     past_1h = start_time - timedelta(hours=1)
                     time_range_ok = past_1h <= detection_time <= end_time_check
                     print(f"标准时间范围检查: {past_1h} <= {detection_time} <= {end_time_check} = {time_range_ok}")
 
                 if time_range_ok:
                     # 获取文件路径
-                    file_path = (item.get('FilePath') or 
-                               item.get('file_path') or 
-                               item.get('Resources') or 
+                    file_path = (item.get('FilePath') or
+                               item.get('file_path') or
+                               item.get('Resources') or
                                'Unknown')
- 
+
+                    # 获取进程名称
+                    process_name = (item.get('ProcessName') or
+                                  item.get('process_name') or
+                                  'Unknown')
+
                     # 确定严重性
                     severity = "High"
                     if any(keyword in threat_name.lower() for keyword in ['trojan', 'virus', 'malware', 'worm']):
@@ -198,15 +202,31 @@ class WindowsDefenderEDRClient(EDRClient):
                     elif any(keyword in threat_name.lower() for keyword in ['adware', 'pup']):
                         severity = "Medium"
 
+                    # 获取操作，如果是Unknown就不包含
+                    action = item.get('Action')
+                    if action == 'Unknown':
+                        action = None
+
+                    # 创建告警，直接将所有信息放在主字段中
                     alert = EDRAlert(
-                        alert_id=str(hash(f"{threat_name}_{detection_time}_{file_path}")),
                         timestamp=detection_time,
                         severity=severity,
-                        alert_type=f"{threat_name}",
-                        additional_data=item
+                        alert_type=threat_name,
+                        process_name=process_name if process_name != 'Unknown' else None,
+                        command_line=None,  # Windows Defender通常不提供命令行信息
+                        source_ip=None,     # 本地检测，无源IP
+                        destination_ip=None, # 本地检测，无目标IP
+
+                        # Windows Defender 特定字段
+                        detection_time=item.get('DetectionTime'),
+                        event_id=item.get('EventId'),
+                        file_path=file_path if file_path != 'Unknown' else None,
+                        severity_zh=item.get('Severity') if item.get('Severity') != 'Unknown' else None,
+                        source='Windows Defender'
                     )
+
                     alerts.append(alert)
-                    
+
             except Exception as e:
                 logger.error(f"转换威胁数据失败: {str(e)}")
                 continue
