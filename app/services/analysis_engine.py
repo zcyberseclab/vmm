@@ -376,13 +376,66 @@ class AnalysisEngine:
             alerts = await self.edr_manager.collect_alerts_from_vm(
                 vm_name, start_time, datetime.utcnow(), file_hash, file_name
             )
-            
-            return alerts
-            
+
+            # 对报警进行去重处理：相同alert_type和file_path的报警，只保留detection_time最新的
+            deduplicated_alerts = self._deduplicate_alerts(alerts)
+
+            logger.info(f"原始告警数量: {len(alerts)}, 去重后告警数量: {len(deduplicated_alerts)}")
+
+            return deduplicated_alerts
+
         except Exception as e:
             logger.error(f"failed to collect edr result: {str(e)}")
             return []
-    
+
+    def _deduplicate_alerts(self, alerts: List[EDRAlert]) -> List[EDRAlert]:
+        """
+        对报警进行去重处理：相同source、alert_type和file_path的报警，只保留detection_time最新的
+
+        Args:
+            alerts: 原始报警列表
+
+        Returns:
+            去重后的报警列表
+        """
+        if not alerts:
+            return alerts
+
+        # 使用字典来跟踪每个(source, alert_type, file_path)组合的最新报警
+        alert_map = {}
+
+        for alert in alerts:
+            # 创建唯一键：source + alert_type + file_path
+            key = (alert.source, alert.alert_type, alert.file_path)
+
+            # 获取detection_time，如果没有则使用timestamp
+            current_detection_time = alert.detection_time or alert.timestamp.isoformat()
+
+            if key not in alert_map:
+                # 第一次遇到这个组合，直接添加
+                alert_map[key] = alert
+                logger.debug(f"添加新报警: {alert.source} - {alert.alert_type} - {alert.file_path} - {current_detection_time}")
+            else:
+                # 已存在相同组合，比较detection_time
+                existing_alert = alert_map[key]
+                existing_detection_time = existing_alert.detection_time or existing_alert.timestamp.isoformat()
+
+                # 比较时间字符串（ISO格式可以直接比较）
+                if current_detection_time > existing_detection_time:
+                    # 当前报警更新，替换
+                    alert_map[key] = alert
+                    logger.debug(f"替换报警: {alert.source} - {alert.alert_type} - {alert.file_path} - {existing_detection_time} -> {current_detection_time}")
+                else:
+                    logger.debug(f"保留原报警: {alert.source} - {alert.alert_type} - {alert.file_path} - {existing_detection_time} (跳过 {current_detection_time})")
+
+        # 返回去重后的报警列表
+        deduplicated_alerts = list(alert_map.values())
+
+        if len(deduplicated_alerts) < len(alerts):
+            logger.info(f"报警去重完成: {len(alerts)} -> {len(deduplicated_alerts)} (去除了 {len(alerts) - len(deduplicated_alerts)} 个重复报警)")
+
+        return deduplicated_alerts
+
     async def _restore_vm_snapshot(self, vm_name: str):
         """恢复虚拟机快照并完全清理资源"""
         logger.info(f"恢复虚拟机快照: {vm_name}")

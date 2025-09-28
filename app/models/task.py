@@ -46,7 +46,6 @@ class EDRAlert(BaseModel):
     detection_time: Optional[str] = None
     event_id: Optional[str] = None
     file_path: Optional[str] = None
-    severity: Optional[str] = None
     source: Optional[str] = None
  
 class VMTaskResult(BaseModel):

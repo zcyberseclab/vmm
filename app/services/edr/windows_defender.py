@@ -221,7 +221,6 @@ class WindowsDefenderEDRClient(EDRClient):
                         detection_time=item.get('DetectionTime'),
                         event_id=item.get('EventId'),
                         file_path=file_path if file_path != 'Unknown' else None,
-                        severity=item.get('Severity') if item.get('Severity') != 'Unknown' else None,
                         source='Windows Defender'
                     )
 
