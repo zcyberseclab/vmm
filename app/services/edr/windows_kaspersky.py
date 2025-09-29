@@ -39,8 +39,7 @@ class KasperskyEDRClient(EDRClient):
                 timeout=180,
             )
 
-            print("get_quarantine_info avp")
-            print(f"Success: {success_export}")
+           
             #获取report.txt文件内容命令
             get_report_cmd = f"powershell.exe -Command Get-Content {report_path}"
             success, output = await self.vm_controller.execute_command_in_vm(
@@ -72,47 +71,48 @@ class KasperskyEDRClient(EDRClient):
     ) -> List[EDRAlert]:
         
         DETECT_REASON_MAP = {
-            "专家分析": "Expert Analysis",
+            "专家分析": "Log",
         }
         SEVERITY_MAP = {
-            "高": "High",
+            "高": "Critical",
         }
         
         try:
             data = []
             logger.info("解析Kaspersky日志数据")
-            for line in log_data.splitlines():
-                parts = [p.strip() for p in line.split("\t") if p.strip()]
-                if len(parts) < 16:
-                    parts += [""] * (16 - len(parts))
-                if (parts[5] not in ["检测到"]) or (parts[2] != file_name):
-                    continue
-                try:
-                    # 移除时区信息进行解析
-                    s = parts[0].replace("今天，", "")
-                    #dt = datetime.strptime(s, "%Y/%m/%d %H:%M:%S")
-                except ValueError:
-                    # 如果解析失败，使用当前时间
-                    logger.warning(f"无法解析隔离时间: {parts[0]}")
-                    #dt = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
-                    
-                alert_hash = (str(abs(hash(str(line)))))
-                reason_need_map = parts[19] if len(parts) > 19 else "None"
-                severity_need_map = parts[10]
-                alert = EDRAlert(
-                    alert_id=str(f"quarantine_{alert_hash}"),
-                    quarantine_time=s,
-                    severity=SEVERITY_MAP.get(severity_need_map, "None"),
-                    alert_type=parts[8],
-                    description=f"检测到威胁类型：{parts[8]}",
-                    file_path=parts[1],
-                    detect_reason=DETECT_REASON_MAP.get(reason_need_map, "None")
-                )
-                # print("----_parse_quarantine_output")
-                # print(type(report_json))
-                # #print(report_json, indent=2, ensure_ascii=False)
-                # json_str = json.dumps(data, ensure_ascii=False, indent=2)
-                data.append(alert)
+            lines = log_data.splitlines()
+            line_index = -1
+            for i, line in enumerate(lines):
+                parts = [p.strip() for p in line.split("\t") if p.strip()]  
+                if "检测到" in parts: 
+                    line_index = i
+                    try:
+                        time_field = parts[0]
+                        str_time = time_field.replace("今天，", "")  # 去掉 "今天，"
+                        # 如果你要解析为 datetime，取消注释下面这行（需要导入 datetime）
+                        # dt = datetime.strptime(s, "%Y/%m/%d %H:%M:%S")
+                    except Exception as e:
+                        # 如果解析失败，使用当前时间
+                        logger.warning(f"无法解析隔离时间: {time_field}")
+                        #dt = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S"
+
+                    alert_hash = str(abs(hash(str(line)))) 
+                    reason_need_map = parts[19] if len(parts) > 19 else "None"
+                    severity_need_map = parts[10] if len(parts) > 10 else "None"
+                
+                    alert = EDRAlert(
+                        alert_id=str(f"quarantine_{alert_hash}"),
+                        severity=SEVERITY_MAP.get(severity_need_map, "None"),
+                        alert_type=parts[8],
+                        process_name=parts[14],
+                        detect_reason=DETECT_REASON_MAP.get(reason_need_map, "None"),
+                        detection_time=str_time,
+                        file_path=parts[1],
+                        source="Kaspersky"
+                    )
+                    data.append(alert)
+                    break  # 只处理第一个匹配行
+    
             return data
         except Exception as e:
             logger.error(f"解析Kaspersky日志失败: {str(e)}")

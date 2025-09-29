@@ -64,13 +64,28 @@ class AviraEDRClient(EDRClient):
                 if line_filename.endswith(".qua"):
                     report_path_temp = f"'C:\\ProgramData\\Avira\\Endpoint Protection SDK\\quarantine\\{line_filename}'"
                     print(f"匹配到文件: {report_path_temp}")
-                    parse_report = f"powershell.exe -Command C:\\get_report\\get_report_.ps1 -FilePath  {report_path_temp}"
-                    success, output = await self.vm_controller.execute_command_in_vm(
-                        self.vm_name,
-                        parse_report,
-                        self.username,
-                        self.password,
-                        timeout=180,
+                    # parse_report = f"powershell.exe -Command C:\\get_report\\get_report_.ps1 -FilePath  {report_path_temp}"
+                    # success, output = await self.vm_controller.execute_command_in_vm(
+                    #     self.vm_name,
+                    #     parse_report,
+                    #     self.username,
+                    #     self.password,
+                    #     timeout=180,
+                    # )
+                    parse_report = [
+                        "-Command",
+                        f"C:\\get_report\\get_report_.ps1 -FilePath  {report_path_temp}",
+                    ]
+
+                    success, output = (
+                        await self.vm_controller.execute_program_in_vm(
+                            self.vm_name,
+                            program_path,
+                            parse_report,
+                            self.username,
+                            self.password,
+                            timeout=60,
+                        )
                     )
                     if success and output.strip():
                         try:

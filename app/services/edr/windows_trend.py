@@ -66,12 +66,21 @@ class TrendMicroEDRClient(EDRClient):
                 get_report_cmd = (
                     f"powershell.exe -Command Get-Content {report_path_temp}"
                 )
-                success, output = await self.vm_controller.execute_command_in_vm(
+                program_path = (
+                    r"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe"
+                )
+                get_report_cmd = [
+                    "-Command",
+                    f"Get-Content {report_path_temp}",
+                ]
+
+                success, output = await self.vm_controller.execute_program_in_vm(
                     self.vm_name,
+                    program_path,
                     get_report_cmd,
                     self.username,
                     self.password,
-                    timeout=180,
+                    timeout=60,
                 )
                 if success and output.strip():
                     try:

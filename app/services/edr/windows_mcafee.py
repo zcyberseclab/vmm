@@ -78,7 +78,7 @@ class McafeeEDRClient(EDRClient):
                     severity='Critical',
                     alert_type=item.get('detection_name'),
                     process_name=item.get('initiator_name'),
-                    detect_reason='log',
+                    detect_reason='Log',
                     detection_time=item.get('timestamp'),
                     file_path=item.get("target_name"),
                     source='McAfee',
