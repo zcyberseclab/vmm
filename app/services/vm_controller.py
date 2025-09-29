@@ -358,17 +358,21 @@ class VBoxManageController(VMController):
         try:
             logger.info(f"在虚拟机中执行命令: {command}")
 
-            vbox_cmd = [
-                self.vboxmanage_path,
-                "guestcontrol", vm_name, "run",
-                "--exe", "cmd.exe",
+            vbox_cmd  = [
+                self.vboxmanage_path, "guestcontrol", vm_name,
                 "--username", username,
                 "--password", password,
-                "--wait-stdout", "--wait-stderr",
-                "--", "/c", command
+                "run", "--exe", "cmd.exe",
+                "--", 
+                "/c",  # cmd.exe 的参数，表示执行后关闭
+                "powershell",
+                "-Command",
+                command
             ]
 
+            logger.debug(f"{vbox_cmd}")
             result = subprocess.run(vbox_cmd, capture_output=True, text=True, timeout=timeout)
+            logger.info(f"命令执行完成，返回码: {result.returncode}")
 
             if result.returncode == 0:
                 logger.info("命令执行成功")

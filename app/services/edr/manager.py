@@ -15,8 +15,10 @@ from app.models.task import EDRAlert
 from app.services.vm_controller import VMController
 from .base import EDRClient
 from .windows_defender import WindowsDefenderEDRClient
-from .kaspersky import KasperskyEDRClient
-
+from .windows_kaspersky import KasperskyEDRClient
+from .windows_mcafee import McafeeEDRClient
+from .windows_avira import AviraEDRClient
+from .windows_trend import TrendMicroEDRClient
 
 class EDRManager:
     """
@@ -63,11 +65,15 @@ class EDRManager:
             return WindowsDefenderEDRClient(vm_name, self.vm_controller, username, password)
         elif antivirus_type == 'kaspersky':
             return KasperskyEDRClient(vm_name, self.vm_controller, username, password)
+        elif antivirus_type == 'mcafee':
+            return McafeeEDRClient(vm_name, self.vm_controller, username, password)
+        elif antivirus_type == 'avira':
+            return AviraEDRClient(vm_name, self.vm_controller, username, password)
+        elif antivirus_type == 'trend':
+            return TrendMicroEDRClient(vm_name, self.vm_controller, username, password)    
         # 可以在这里继续添加其他杀软的支持
         # elif antivirus_type == 'symantec':
         #     return SymantecEDRClient(vm_name, self.vm_controller, username, password)
-        # elif antivirus_type == 'mcafee':
-        #     return McAfeeEDRClient(vm_name, self.vm_controller, username, password)
         else:
             logger.warning(f"不支持的杀软类型: {antivirus_type}，使用默认的Windows Defender客户端")
             return WindowsDefenderEDRClient(vm_name, self.vm_controller, username, password)

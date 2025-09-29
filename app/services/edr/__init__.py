@@ -21,13 +21,21 @@ Usage:
 
 from .base import EDRClient
 from .windows_defender import WindowsDefenderEDRClient
-from .kaspersky import KasperskyEDRClient
+from .windows_kaspersky import KasperskyEDRClient
+from .windows_mcafee import McafeeEDRClient
+from .windows_avira import AviraEDRClient
+from .windows_trend import TrendMicroEDRClient
+
+
 from .manager import EDRManager, create_edr_manager
 
 __all__ = [
     'EDRClient',
     'WindowsDefenderEDRClient',
     'KasperskyEDRClient',
+    'McafeeEDRClient',
+    'AviraEDRClient',
+    'TrendMicroEDRClient',
     'EDRManager',
     'create_edr_manager'
 ]
