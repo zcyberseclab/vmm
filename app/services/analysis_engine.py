@@ -9,10 +9,11 @@ from app.core.config import get_settings
 from app.services.vm_controller import create_vm_controller
 from app.services.file_handler import FileHandler
 from app.services.edr import EDRManager
+from app.services.vm_pool_manager import get_vm_pool_manager
 
 
 class AnalysisEngine:
- 
+
     def __init__(self):
         self.settings = get_settings()
 
@@ -34,10 +35,13 @@ class AnalysisEngine:
                 })
 
         self.edr_manager = EDRManager(self.vm_controller, vm_configs)
+
+        # 初始化VM资源池管理器（异步初始化将在第一次使用时进行）
+        self.vm_pool_manager = None
     
     async def analyze_sample(self, task: AnalysisTask):
- 
-        logger.info(f"开始分析样本: {task.file_name} (任务ID: {task.task_id})")
+
+        logger.info(f"开始分析样本: {task.file_name} (任务ID: {task.task_id}) - 使用 {len(task.vm_names)} 个虚拟机并行分析")
 
         try:
             # 为每个虚拟机创建任务结果
@@ -48,53 +52,98 @@ class AnalysisEngine:
                     start_time=datetime.utcnow()
                 )
                 task.vm_results.append(vm_result)
-            
-            # 并行处理所有虚拟机
+
+            # 并行处理所有虚拟机 - 使用信号量控制并发数
+            max_concurrent_vms = min(len(task.vm_names), 8)  # 最多同时处理8个VM
+            semaphore = asyncio.Semaphore(max_concurrent_vms)
+
+            async def vm_task_with_semaphore(vm_result):
+                async with semaphore:
+                    return await self._analyze_on_vm(task, vm_result)
+
             vm_tasks = []
             for vm_result in task.vm_results:
-                vm_task = self._analyze_on_vm(task, vm_result)
+                vm_task = vm_task_with_semaphore(vm_result)
                 vm_tasks.append(vm_task)
-            
-       
-            await asyncio.gather(*vm_tasks, return_exceptions=True)
-            
-            logger.info(f"样本分析完成: {task.task_id}")
+
+            # 并行执行所有VM任务，收集结果和异常
+            results = await asyncio.gather(*vm_tasks, return_exceptions=True)
+
+            # 统计结果
+            successful_vms = 0
+            failed_vms = 0
+            total_alerts = 0
+
+            for i, result in enumerate(results):
+                vm_result = task.vm_results[i]
+                if isinstance(result, Exception):
+                    logger.error(f"虚拟机 {vm_result.vm_name} 分析异常: {str(result)}")
+                    failed_vms += 1
+                else:
+                    if vm_result.status == VMTaskStatus.COMPLETED:
+                        successful_vms += 1
+                        total_alerts += len(vm_result.alerts)
+                    else:
+                        failed_vms += 1
+
+            logger.info(f"样本分析完成: {task.task_id} - 成功: {successful_vms}, 失败: {failed_vms}, 总告警: {total_alerts}")
 
         except Exception as e:
             logger.error(f"样本分析失败: {task.task_id} - {str(e)}")
             raise
     
     async def _analyze_on_vm(self, task: AnalysisTask, vm_result: VMTaskResult):
- 
+
         vm_name = vm_result.vm_name
+        task_start_time = datetime.utcnow()
         logger.info(f"开始在虚拟机 {vm_name} 上分析样本")
-        
+
+        # 获取VM资源池管理器
+        if not self.vm_pool_manager:
+            self.vm_pool_manager = await get_vm_pool_manager()
+
+        # 获取VM资源
+        vm_acquired = await self.vm_pool_manager.acquire_vm(vm_name, task.task_id)
+        if not vm_acquired:
+            raise Exception(f"无法获取VM资源: {vm_name}")
+
         try:
- 
+
             vm_result.status = VMTaskStatus.PREPARING
             await self._prepare_vm(vm_name)
-            
- 
+
+
             vm_result.status = VMTaskStatus.UPLOADING
             await self._upload_sample_to_vm(task, vm_name)
-            
-  
+
+
             vm_result.status = VMTaskStatus.ANALYZING
             analysis_start_time = datetime.utcnow()
 
             # 执行样本文件
-            await self._execute_sample_in_vm(task, vm_name)
+            execution_result = await self._execute_sample_in_vm(task, vm_name)
 
-            # 等待分析完成 - 给杀软足够时间检测
-            analysis_wait_time = min(task.timeout, 30)  # 最多等待30秒
-            logger.info(f"等待 {analysis_wait_time} 秒让杀软检测样本...")
+            # 智能等待分析完成 - 根据执行结果调整等待时间
+            if execution_result.get('file_deleted_by_edr', False):
+                # 文件被EDR删除，缩短等待时间
+                analysis_wait_time = 10
+                logger.info(f"文件已被EDR删除，缩短等待时间到 {analysis_wait_time} 秒")
+            elif execution_result.get('execution_failed', False):
+                # 执行失败，也缩短等待时间
+                analysis_wait_time = 15
+                logger.info(f"样本执行失败，缩短等待时间到 {analysis_wait_time} 秒")
+            else:
+                # 正常执行，使用标准等待时间
+                analysis_wait_time = min(task.timeout, 25)  # 减少到25秒
+                logger.info(f"样本正常执行，等待 {analysis_wait_time} 秒让杀软检测...")
+
             await asyncio.sleep(analysis_wait_time)
-            
-       
+
+
             vm_result.status = VMTaskStatus.COLLECTING
             alerts = await self._collect_edr_results(vm_name, analysis_start_time, task.file_hash, task.file_name)
             vm_result.alerts = alerts
-            
+
 
             vm_result.status = VMTaskStatus.RESTORING
             await self._restore_vm_snapshot(vm_name)
@@ -106,25 +155,44 @@ class AnalysisEngine:
             vm_result.status = VMTaskStatus.COMPLETED
             vm_result.end_time = datetime.utcnow()
 
-            logger.info(f"虚拟机 {vm_name} 分析完成，发现 {len(alerts)} 个告警")
+            # 更新性能统计
+            task_duration = (datetime.utcnow() - task_start_time).total_seconds()
+            self.vm_pool_manager.update_stats(True, task_duration)
+
+            logger.info(f"虚拟机 {vm_name} 分析完成，发现 {len(alerts)} 个告警，耗时 {task_duration:.1f} 秒")
 
         except Exception as e:
             vm_result.status = VMTaskStatus.FAILED
             vm_result.error_message = str(e)
             vm_result.end_time = datetime.utcnow()
-            logger.error(f"虚拟机 {vm_name} 分析失败: {str(e)}")
+
+            # 标记VM错误状态
+            await self.vm_pool_manager.mark_vm_error(vm_name, str(e))
+
+            # 更新性能统计
+            task_duration = (datetime.utcnow() - task_start_time).total_seconds()
+            self.vm_pool_manager.update_stats(False, task_duration)
+
+            logger.error(f"虚拟机 {vm_name} 分析失败: {str(e)}，耗时 {task_duration:.1f} 秒")
 
             # 尝试恢复快照和完整清理
             try:
                 await self._restore_vm_snapshot(vm_name)
                 await self._complete_vm_cleanup(vm_name)
+                # 如果恢复成功，重置错误状态
+                await self.vm_pool_manager.reset_vm_error(vm_name)
             except Exception as restore_error:
                 logger.error(f"恢复快照和清理失败: {str(restore_error)}")
+
+        finally:
+            # 释放VM资源
+            await self.vm_pool_manager.release_vm(vm_name)
     
     async def _prepare_vm(self, vm_name: str):
 
         logger.info(f"准备虚拟机: {vm_name}")
 
+        # 使用同步方法获取VM配置，避免协程问题
         vm_config = None
         if hasattr(self.settings, 'edr_analysis') and self.settings.edr_analysis:
             for config in self.settings.edr_analysis.vms:
@@ -147,8 +215,8 @@ class AnalysisEngine:
         if not await self.vm_controller.power_on(vm_config.name):
             raise Exception(f"启动虚拟机失败: {vm_name}")
 
-        # 等待虚拟机就绪
-        await self._wait_for_vm_ready(vm_config.name, timeout=300)
+        # 等待虚拟机就绪 - 增加超时时间到600秒
+        await self._wait_for_vm_ready(vm_config.name, timeout=600)
 
         logger.info(f"虚拟机 {vm_name} 已就绪")
 
@@ -197,39 +265,136 @@ class AnalysisEngine:
                 logger.error(f"强制关闭虚拟机也失败: {vm_name}")
                 pass
 
-    async def _wait_for_vm_ready(self, vm_name: str, timeout: int = 300):
+    async def _wait_for_vm_ready(self, vm_name: str, timeout: int = 600):
         """
-        等待虚拟机就绪
+        等待虚拟机就绪 - 优化版本，增加详细日志和错误处理
 
         Args:
             vm_name: 虚拟机名称
             timeout: 超时时间（秒）
         """
-        logger.info(f"waiting {vm_name} startup...")
+        logger.info(f"等待虚拟机启动: {vm_name} (超时: {timeout}秒)")
 
         start_time = datetime.utcnow()
+        check_interval = 10  # 增加检查间隔到10秒，减少频繁检查
+        last_status = "unknown"
+        status_change_count = 0
+
         while (datetime.utcnow() - start_time).total_seconds() < timeout:
+            elapsed = (datetime.utcnow() - start_time).total_seconds()
             try:
                 status = await self.vm_controller.get_status(vm_name)
-                if status.get("power_state") in ["running", "poweredOn"]:
-                    # 额外等待一段时间确保系统完全启动
-                    await asyncio.sleep(30)
-                    logger.info(f"虚拟机 {vm_name} 已就绪")
-                    return
+                power_state = status.get("power_state", "unknown").lower()
 
-                await asyncio.sleep(10)  # 每10秒检查一次
+                # 记录状态变化
+                if power_state != last_status:
+                    logger.info(f"虚拟机 {vm_name} 状态变化: {last_status} -> {power_state} (已等待 {elapsed:.1f}秒)")
+                    last_status = power_state
+                    status_change_count += 1
+
+                if power_state in ["running", "poweredon"]:
+                    logger.info(f"虚拟机 {vm_name} 已启动，等待系统就绪...")
+
+                    # 给系统一些时间完全启动
+                    await asyncio.sleep(30)
+
+                    # 尝试执行简单命令检查系统是否就绪
+                    vm_config = None
+                    if hasattr(self.settings, 'edr_analysis') and self.settings.edr_analysis:
+                        for config in self.settings.edr_analysis.vms:
+                            if config.name == vm_name:
+                                vm_config = config
+                                break
+
+                    if vm_config:
+                        logger.info(f"检查虚拟机 {vm_name} 系统就绪状态...")
+                        ready = await self._check_vm_system_ready(vm_config, max_attempts=5)
+                        if ready:
+                            logger.info(f"✅ 虚拟机 {vm_name} 系统已就绪 (总耗时: {elapsed + 30:.1f}秒)")
+                            return
+                        else:
+                            logger.warning(f"虚拟机 {vm_name} 系统就绪检查失败，使用传统等待方式")
+                            await asyncio.sleep(30)  # 额外等待30秒
+                            logger.info(f"✅ 虚拟机 {vm_name} 已就绪（传统方式，总耗时: {elapsed + 60:.1f}秒）")
+                            return
+                    else:
+                        # 如果无法获取配置，使用传统等待方式
+                        await asyncio.sleep(30)
+                        logger.info(f"✅ 虚拟机 {vm_name} 已就绪（无配置，总耗时: {elapsed + 30:.1f}秒）")
+                        return
+                else:
+                    logger.debug(f"虚拟机 {vm_name} 当前状态: {power_state} (已等待 {elapsed:.1f}秒)")
+
+                await asyncio.sleep(check_interval)
 
             except Exception as e:
-                logger.warning(f"检查虚拟机状态失败: {str(e)}")
-                await asyncio.sleep(10)
+                logger.warning(f"检查虚拟机 {vm_name} 状态失败: {str(e)} (已等待 {elapsed:.1f}秒)")
+                await asyncio.sleep(check_interval)
 
+        logger.error(f"❌ 虚拟机 {vm_name} 在 {timeout} 秒内未就绪，最终状态: {last_status}，状态变化次数: {status_change_count}")
         raise Exception(f"虚拟机 {vm_name} 在 {timeout} 秒内未就绪")
-    
+
+    async def _get_vm_config(self, vm_name: str):
+        """获取虚拟机配置 - 优先从VM资源池获取"""
+        if self.vm_pool_manager:
+            config = await self.vm_pool_manager.get_vm_config(vm_name)
+            if config:
+                # 转换为类似原始配置对象的结构
+                class VMConfig:
+                    def __init__(self, config_dict):
+                        for key, value in config_dict.items():
+                            setattr(self, key, value)
+                return VMConfig(config)
+
+        # 回退到原始方法
+        if hasattr(self.settings, 'edr_analysis') and self.settings.edr_analysis:
+            for config in self.settings.edr_analysis.vms:
+                if config.name == vm_name:
+                    return config
+        return None
+
+    async def _check_vm_system_ready(self, vm_config, max_attempts: int = 5):
+        """
+        检查虚拟机系统是否就绪
+        通过执行简单命令来验证系统状态
+        """
+        logger.info(f"开始检查虚拟机 {vm_config.name} 系统就绪状态...")
+
+        for attempt in range(max_attempts):
+            try:
+                logger.debug(f"虚拟机 {vm_config.name} 系统就绪检查 (尝试 {attempt + 1}/{max_attempts})")
+
+                # 执行简单的系统命令检查
+                success, output = await self.vm_controller.execute_command_in_vm(
+                    vm_config.name,
+                    'echo "system_ready"',
+                    vm_config.username,
+                    vm_config.password,
+                    timeout=30  # 增加超时时间
+                )
+
+                if success and "system_ready" in output:
+                    logger.info(f"✅ 虚拟机 {vm_config.name} 系统就绪检查通过 (尝试 {attempt + 1})")
+                    return True
+                else:
+                    logger.debug(f"虚拟机 {vm_config.name} 系统就绪检查未通过: success={success}, output='{output.strip()}'")
+
+            except Exception as e:
+                logger.debug(f"虚拟机 {vm_config.name} 系统就绪检查异常 (尝试 {attempt + 1}): {str(e)}")
+
+            if attempt < max_attempts - 1:
+                wait_time = 10 + (attempt * 5)  # 递增等待时间
+                logger.debug(f"等待 {wait_time} 秒后重试...")
+                await asyncio.sleep(wait_time)
+
+        logger.warning(f"❌ 虚拟机 {vm_config.name} 系统就绪检查失败，已尝试 {max_attempts} 次")
+        return False
+
     async def _upload_sample_to_vm(self, task: AnalysisTask, vm_name: str):
- 
+
         logger.info(f"上传样本到虚拟机: {vm_name}")
-        
-        # 获取虚拟机配置
+
+        # 获取虚拟机配置 - 使用同步方法
         vm_config = None
         if hasattr(self.settings, 'edr_analysis') and self.settings.edr_analysis:
             for config in self.settings.edr_analysis.vms:
@@ -273,13 +438,22 @@ class AnalysisEngine:
 
         logger.info(f"样本已上传到虚拟机 {vm_name}: {destination_path}")
 
-    async def _execute_sample_in_vm(self, task: AnalysisTask, vm_name: str):
+    async def _execute_sample_in_vm(self, task: AnalysisTask, vm_name: str) -> dict:
         """
         在虚拟机中执行样本文件
+
+        Returns:
+            dict: 执行结果信息，包含 file_deleted_by_edr, execution_failed 等状态
         """
         logger.info(f"在虚拟机 {vm_name} 中执行样本: {task.file_name}")
 
-        # 获取虚拟机配置
+        result = {
+            'file_deleted_by_edr': False,
+            'execution_failed': False,
+            'execution_success': False
+        }
+
+        # 获取虚拟机配置 - 使用同步方法
         vm_config = None
         if hasattr(self.settings, 'edr_analysis') and self.settings.edr_analysis:
             for config in self.settings.edr_analysis.vms:
@@ -288,6 +462,7 @@ class AnalysisEngine:
                     break
 
         if not vm_config:
+            result['execution_failed'] = True
             raise Exception(f"虚拟机配置不存在: {vm_name}")
 
         # 构建样本文件路径
@@ -302,21 +477,21 @@ class AnalysisEngine:
         # 更新文件名用于后续处理
         actual_file_name = os.path.basename(sample_path)
 
-        # 等待一段时间让EDR检测文件
-        logger.info("等待EDR检测文件...")
-        await asyncio.sleep(5)
+        # 缩短EDR检测等待时间
+        logger.info("等待EDR初步检测文件...")
+        await asyncio.sleep(3)  # 从5秒减少到3秒
 
         # 检查文件是否被EDR删除
         check_file_cmd = f"powershell -Command \"Test-Path '{sample_path}'\""
         file_exists, file_check_output = await self.vm_controller.execute_command_in_vm(
-            vm_config.name, check_file_cmd, vm_config.username, vm_config.password, timeout=30
+            vm_config.name, check_file_cmd, vm_config.username, vm_config.password, timeout=15  # 减少超时时间
         )
 
         if not file_exists or 'False' in file_check_output or 'false' in file_check_output.lower():
             logger.info(f"文件已被EDR删除: {sample_path}")
             logger.info("文件被删除，直接收集EDR日志，无需执行样本")
-            # 文件被删除，直接返回，后续会收集EDR日志
-            return
+            result['file_deleted_by_edr'] = True
+            return result
 
         logger.info(f"文件仍然存在: {sample_path}，继续执行样本")
 
@@ -326,7 +501,6 @@ class AnalysisEngine:
 
             if file_extension in ['exe', 'com', 'scr', 'bat', 'cmd']:
                 # Windows可执行文件
-                #execute_cmd = f'Start-Process -FilePath "{sample_path}" -WindowStyle Hidden'
                 execute_cmd = f"Start-Process -FilePath '{sample_path}'"
                 logger.info(f"执行Windows可执行文件: {sample_path}")
 
@@ -347,25 +521,29 @@ class AnalysisEngine:
             else:
                 # 其他文件类型，尝试用默认程序打开
                 execute_cmd = f"Start-Process -FilePath '{sample_path}'"
-      
                 logger.info(f"尝试用默认程序执行: {sample_path}")
 
-            # 在虚拟机中执行命令
+            # 在虚拟机中执行命令，缩短超时时间
             success, output = await self.vm_controller.execute_command_in_vm(
                 vm_config.name, f'powershell -Command "{execute_cmd}"',
-                vm_config.username, vm_config.password, timeout=60
+                vm_config.username, vm_config.password, timeout=30  # 从60秒减少到30秒
             )
 
             if success:
                 logger.info(f"样本执行命令发送成功: {vm_name}")
+                result['execution_success'] = True
                 if output.strip():
                     logger.info(f"执行输出: {output.strip()}")
             else:
                 logger.warning(f"样本执行命令失败: {vm_name} - {output}")
+                result['execution_failed'] = True
 
         except Exception as e:
             logger.error(f"执行样本时发生异常: {vm_name} - {str(e)}")
+            result['execution_failed'] = True
             # 不抛出异常，继续分析流程
+
+        return result
 
     async def _collect_edr_results(self, vm_name: str, start_time: datetime, file_hash: str, file_name: str) -> List[EDRAlert]:
 
@@ -448,7 +626,7 @@ class AnalysisEngine:
         """恢复虚拟机快照并完全清理资源"""
         logger.info(f"恢复虚拟机快照: {vm_name}")
 
-        # 获取虚拟机配置
+        # 获取虚拟机配置 - 使用同步方法
         vm_config = None
         if hasattr(self.settings, 'edr_analysis') and self.settings.edr_analysis:
             for config in self.settings.edr_analysis.vms:

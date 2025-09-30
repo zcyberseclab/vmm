@@ -108,11 +108,12 @@ class TrendMicroEDRClient(EDRClient):
                         )
                         alert = EDRAlert(
                             alert_id=str(f"quarantine_{alert_hash}"),
-                            quarantine_time=dt,
-                            severity="None",
+                            severity="Critical",
                             alert_type=VirusName,
+                            detect_reason="Log",
+                            detection_time=dt,
                             file_path=FileName,
-                            detect_reason="None",
+                            source="Trend",
                         )
                         data.append(alert)
                         return data

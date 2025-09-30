@@ -31,10 +31,10 @@ class WindowsDefenderEDRClient(EDRClient):
             # 获取威胁检测信息（通过事件日志）
             threat_data = await self._get_threat_events(file_name)
 
-            print("=== 威胁数据汇总 ===")
-            print(f"获取到 {len(threat_data)} 条威胁数据")
-            for i, data in enumerate(threat_data):
-                print(f"记录 {i+1}: {data}")
+            #print("=== 威胁数据汇总 ===")
+            #print(f"获取到 {len(threat_data)} 条威胁数据")
+            #for i, data in enumerate(threat_data):
+            #    print(f"记录 {i+1}: {data}")
 
             # 转换为EDR告警
             if threat_data:
@@ -73,10 +73,10 @@ class WindowsDefenderEDRClient(EDRClient):
                     self.vm_name, event_cmd, self.username, self.password, timeout=60
                 )
 
-            print(f"=== Windows Defender 事件日志查询结果 ===")
-            print(f"Success: {success}")
-            print(f"Output: \n{output}")
-            print("=" * 60)
+            #print(f"=== Windows Defender 事件日志查询结果 ===")
+            #print(f"Success: {success}")
+            #print(f"Output: \n{output}")
+            #print("=" * 60)
 
             if success and output.strip() and ("TimeCreated" in output or "Message" in output):
                 parsed_events = self._parse_event_log_output(output, file_name)
@@ -101,17 +101,17 @@ class WindowsDefenderEDRClient(EDRClient):
         将威胁数据转换为EDR告警
         """
         alerts = []
-        print(f"开始转换 {len(threat_data)} 条威胁数据为EDR告警...")
-        print(f"时间范围: start_time={start_time}, end_time={end_time}")
+        #print(f"开始转换 {len(threat_data)} 条威胁数据为EDR告警...")
+        #print(f"时间范围: start_time={start_time}, end_time={end_time}")
 
         for i, item in enumerate(threat_data):
             try:
-                print(f"处理第 {i+1} 条记录...")
+                #print(f"处理第 {i+1} 条记录...")
                 # 检查是否有威胁名称
                 threat_name = item.get('ThreatName') or item.get('threat_name')
-                print(f"威胁名称: {threat_name}")
+                #print(f"威胁名称: {threat_name}")
                 if not threat_name or threat_name == 'Unknown':
-                    print("跳过没有威胁名称的记录")
+                    #print("跳过没有威胁名称的记录")
                     continue
 
                 # 获取检测时间
@@ -121,12 +121,12 @@ class WindowsDefenderEDRClient(EDRClient):
                 
                 if detection_time_str:
                     try:
-                        print(f"原始检测时间字符串: '{detection_time_str}'")
+                        #print(f"原始检测时间字符串: '{detection_time_str}'")
                         # 尝试解析不同的时间格式
                         if isinstance(detection_time_str, str):
                             # 移除时区信息进行解析
                             time_part = detection_time_str.split(' (')[0].split('.')[0].strip()
-                            print(f"处理后的时间字符串: '{time_part}'")
+                            #print(f"处理后的时间字符串: '{time_part}'")
 
                             # 尝试多种时间格式，包括中文格式
                             time_formats = [
@@ -142,28 +142,28 @@ class WindowsDefenderEDRClient(EDRClient):
                             for fmt in time_formats:
                                 try:
                                     detection_time = datetime.strptime(time_part, fmt)
-                                    print(f"成功解析时间，使用格式: {fmt} -> {detection_time}")
+                                    #print(f"成功解析时间，使用格式: {fmt} -> {detection_time}")
                                     break
                                 except ValueError as e:
-                                    print(f"格式 {fmt} 解析失败: {e}")
+                                    #print(f"格式 {fmt} 解析失败: {e}")
                                     continue
 
                             if detection_time is None:
                                 # 如果所有格式都失败，使用当前时间
-                                print("所有时间格式解析都失败，使用当前时间")
+                                #print("所有时间格式解析都失败，使用当前时间")
                                 detection_time = datetime.now()
                         else:
                             detection_time = detection_time_str
                     except (ValueError, AttributeError) as e:
-                        print(f"时间解析异常: {e}")
+                        #print(f"时间解析异常: {e}")
                         detection_time = datetime.now()
                 else:
-                    print("没有检测时间字符串，使用当前时间")
+                    #print("没有检测时间字符串，使用当前时间")
                     detection_time = datetime.now()
 
              
                 end_time_check = end_time or datetime.now()
-                print(f"时间范围检查: start_time={start_time}, detection_time={detection_time}, end_time={end_time_check}")
+                #print(f"时间范围检查: start_time={start_time}, detection_time={detection_time}, end_time={end_time_check}")
 
              
                 time_range_ok = False
@@ -171,12 +171,12 @@ class WindowsDefenderEDRClient(EDRClient):
                   
                     past_24h = datetime.now() - timedelta(hours=24)
                     time_range_ok = detection_time >= past_24h
-                    print(f"文件名匹配模式，时间范围: {past_24h} <= {detection_time} = {time_range_ok}")
+                    #print(f"文件名匹配模式，时间范围: {past_24h} <= {detection_time} = {time_range_ok}")
                 else:
             
                     past_1h = start_time - timedelta(hours=1)
                     time_range_ok = past_1h <= detection_time <= end_time_check
-                    print(f"标准时间范围检查: {past_1h} <= {detection_time} <= {end_time_check} = {time_range_ok}")
+                    # print(f"标准时间范围检查: {past_1h} <= {detection_time} <= {end_time_check} = {time_range_ok}")
 
                 if time_range_ok:
                     # 获取文件路径
@@ -190,7 +190,7 @@ class WindowsDefenderEDRClient(EDRClient):
                                   item.get('process_name') or
                                   'Unknown')
 
-                    # 确定严重性
+           
                     severity = "High"
                     if any(keyword in threat_name.lower() for keyword in ['trojan', 'virus', 'malware', 'worm']):
                         severity = "Critical"
@@ -231,7 +231,7 @@ class WindowsDefenderEDRClient(EDRClient):
         """
         解析Windows事件日志输出 - 专门处理Windows Defender事件日志
         """
-        logger.info("解析Windows事件日志输出数据")
+        #logger.info("解析Windows事件日志输出数据")
         records = []
 
         try:

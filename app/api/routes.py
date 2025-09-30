@@ -16,6 +16,7 @@ from app.core.security import verify_api_key_header
 from fastapi import Header
 from app.services.task_manager import task_manager
 from app.services.file_handler import FileHandler
+from app.services.vm_pool_manager import get_vm_pool_manager
 from loguru import logger
 
 router = APIRouter(prefix="/api", tags=["API"])
@@ -299,4 +300,66 @@ async def get_queue_status(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"获取队列状态失败: {str(e)}"
+        )
+
+
+@router.get("/vm-pool/status")
+async def get_vm_pool_status(api_key: str = Depends(verify_api_key)):
+    """
+    获取虚拟机资源池状态
+
+    Returns:
+        dict: VM资源池状态信息，包括各VM状态、性能统计等
+    """
+    try:
+        vm_pool_manager = await get_vm_pool_manager()
+        pool_status = await vm_pool_manager.get_pool_status()
+
+        return {
+            "status": "success",
+            "data": pool_status,
+            "message": "VM资源池状态获取成功"
+        }
+
+    except Exception as e:
+        logger.error(f"获取VM资源池状态失败: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"获取VM资源池状态失败: {str(e)}"
+        )
+
+
+@router.post("/vm-pool/reset-errors")
+async def reset_vm_errors(api_key: str = Depends(verify_api_key)):
+    """
+    重置所有VM的错误状态
+
+    Returns:
+        dict: 重置结果
+    """
+    try:
+        vm_pool_manager = await get_vm_pool_manager()
+
+        # 获取所有VM名称
+        pool_status = await vm_pool_manager.get_pool_status()
+        reset_count = 0
+
+        for vm_name, vm_details in pool_status['vm_details'].items():
+            if vm_details['state'] == 'error':
+                await vm_pool_manager.reset_vm_error(vm_name)
+                reset_count += 1
+
+        return {
+            "status": "success",
+            "data": {
+                "reset_count": reset_count,
+                "message": f"已重置 {reset_count} 个VM的错误状态"
+            }
+        }
+
+    except Exception as e:
+        logger.error(f"重置VM错误状态失败: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"重置VM错误状态失败: {str(e)}"
         )

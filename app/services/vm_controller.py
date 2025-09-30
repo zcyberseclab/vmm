@@ -1,6 +1,3 @@
-"""
-虚拟机控制器 - 支持多种VMware控制方式
-"""
 import os
 import subprocess
 import time
@@ -13,8 +10,7 @@ from app.core.config import get_settings
 
 
 class VMController(ABC):
-    """虚拟机控制器抽象基类"""
-    
+ 
     @abstractmethod
     async def power_on(self, vm_name: str) -> bool:
         pass
@@ -73,27 +69,23 @@ class VBoxManageController(VMController):
             return False
     
     async def power_on(self, vm_name: str) -> bool:
-        """启动虚拟机"""
-        # 使用gui模式以便观察虚拟机执行过程
-        return await self._run_vboxmanage("startvm", vm_name, "--type", "gui")
+        """启动虚拟机，使用配置的启动模式"""
+        settings = get_settings()
+        startup_mode = getattr(settings.virtualization, 'vm_startup_mode', 'headless')
+
+        # 验证启动模式
+        if startup_mode not in ['gui', 'headless']:
+            logger.warning(f"无效的启动模式: {startup_mode}，使用默认的headless模式")
+            startup_mode = 'headless'
+
+        logger.info(f"启动虚拟机 {vm_name} (模式: {startup_mode})")
+        return await self._run_vboxmanage("startvm", vm_name, "--type", startup_mode)
     
     async def power_off(self, vm_name: str) -> bool:
         """关闭虚拟机"""
         return await self._run_vboxmanage("controlvm", vm_name, "poweroff")
 
-    async def force_power_off(self, vm_name: str) -> bool:
-        """强制关闭虚拟机（处理锁定情况）"""
-        logger.info(f"强制关闭虚拟机: {vm_name}")
-
-        # 尝试正常关闭
-        if await self.power_off(vm_name):
-            logger.info("正常关闭成功")
-            return True
-
-        # 如果正常关闭失败，尝试强制关闭
-        logger.warning("正常关闭失败，尝试强制关闭")
-        return await self._run_vboxmanage("controlvm", vm_name, "acpipowerbutton")
-
+ 
     async def unlock_vm_session(self, vm_name: str) -> bool:
         """解锁虚拟机会话"""
         logger.info(f"尝试解锁虚拟机会话: {vm_name}")

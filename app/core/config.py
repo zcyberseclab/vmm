@@ -20,6 +20,7 @@ class VirtualizationConfig(BaseModel):
     """虚拟化平台配置"""
     controller_type: str = "virtualbox"
     vboxmanage_path: str = "auto"
+    vm_startup_mode: str = "headless"  # gui 或 headless
 
 
 class VirtualMachineConfig(BaseModel):

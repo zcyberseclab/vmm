@@ -99,16 +99,16 @@ class AviraEDRClient(EDRClient):
                             if parse_report_out["path"].startswith("\\\\?\\"):
                                 path_f = parse_report_out["path"][4:]
                             dt = datetime.fromtimestamp(
-                                parse_report_out["utc"], tz=None
+                                parse_report_out["utc"]
                             ).strftime("%Y-%m-%d %H:%M:%S")
                             alert = EDRAlert(
                                 alert_id=str(f"quarantine_{alert_hash}"),
-                                quarantine_time=dt,
-                                severity="None",
+                                severity="Critical",
                                 alert_type=parse_report_out["malware"],
-                                # description=f"检测到威胁类型：",
+                                detection_time=dt,
+                                detect_reason="Log",
                                 file_path=path_f,
-                                detect_reason="None",
+                                source="Avira"
                             )
                             data.append(alert)
                             return data
