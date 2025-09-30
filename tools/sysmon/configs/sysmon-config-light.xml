@@ -1,0 +1,164 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Sysmon schemaversion="4.90">
+  <!-- Lightweight Sysmon configuration for EDR analysis -->
+  <!-- This configuration captures essential system activity with reduced overhead -->
+  
+  <EventFiltering>
+    <!-- Event ID 1: Process creation -->
+    <RuleGroup name="" groupRelation="or">
+      <ProcessCreate onmatch="include">
+        <!-- Log process creation for executables -->
+        <Rule name="Executable Process Creation" groupRelation="or">
+          <Image condition="end with">.exe</Image>
+          <Image condition="end with">.com</Image>
+          <Image condition="end with">.scr</Image>
+          <Image condition="end with">.bat</Image>
+          <Image condition="end with">.cmd</Image>
+          <Image condition="end with">.ps1</Image>
+          <Image condition="end with">.vbs</Image>
+          <Image condition="end with">.js</Image>
+        </Rule>
+      </ProcessCreate>
+    </RuleGroup>
+
+    <!-- Event ID 3: Network connection -->
+    <RuleGroup name="" groupRelation="or">
+      <NetworkConnect onmatch="include">
+        <!-- Log network connections excluding common system processes -->
+        <Rule name="Network Connections" groupRelation="or">
+          <Image condition="contains any">.</Image>
+        </Rule>
+      </NetworkConnect>
+      <NetworkConnect onmatch="exclude">
+        <!-- Exclude common system processes to reduce noise -->
+        <Rule name="System Process Exclusions" groupRelation="or">
+          <Image condition="is">C:\Windows\System32\svchost.exe</Image>
+          <Image condition="is">C:\Windows\System32\spoolsv.exe</Image>
+          <Image condition="is">C:\Windows\System32\wuauclt.exe</Image>
+          <Image condition="is">C:\Windows\System32\SearchIndexer.exe</Image>
+        </Rule>
+      </NetworkConnect>
+    </RuleGroup>
+
+    <!-- Event ID 5: Process terminated -->
+    <RuleGroup name="" groupRelation="or">
+      <ProcessTerminate onmatch="include">
+        <!-- Log process termination for executables -->
+        <Rule name="Executable Process Termination" groupRelation="or">
+          <Image condition="end with">.exe</Image>
+          <Image condition="end with">.com</Image>
+          <Image condition="end with">.scr</Image>
+        </Rule>
+      </ProcessTerminate>
+    </RuleGroup>
+
+    <!-- Event ID 7: Image loaded -->
+    <RuleGroup name="" groupRelation="or">
+      <ImageLoad onmatch="include">
+        <!-- Log suspicious DLL loading -->
+        <Rule name="Suspicious DLL Loading" groupRelation="or">
+          <ImageLoaded condition="contains">temp</ImageLoaded>
+          <ImageLoaded condition="contains">appdata</ImageLoaded>
+          <ImageLoaded condition="contains">programdata</ImageLoaded>
+          <ImageLoaded condition="contains">users</ImageLoaded>
+        </Rule>
+      </ImageLoad>
+    </RuleGroup>
+
+    <!-- Event ID 8: CreateRemoteThread -->
+    <RuleGroup name="" groupRelation="or">
+      <CreateRemoteThread onmatch="include">
+        <!-- Log all remote thread creation (potential injection) -->
+        <Rule name="Remote Thread Creation" groupRelation="or">
+          <SourceImage condition="contains any">.</SourceImage>
+        </Rule>
+      </CreateRemoteThread>
+    </RuleGroup>
+
+    <!-- Event ID 10: ProcessAccess -->
+    <RuleGroup name="" groupRelation="or">
+      <ProcessAccess onmatch="include">
+        <!-- Log process access with specific access rights -->
+        <Rule name="Process Access" groupRelation="or">
+          <GrantedAccess condition="is">0x1010</GrantedAccess>
+          <GrantedAccess condition="is">0x1410</GrantedAccess>
+          <GrantedAccess condition="is">0x1438</GrantedAccess>
+        </Rule>
+      </ProcessAccess>
+    </RuleGroup>
+
+    <!-- Event ID 11: FileCreate -->
+    <RuleGroup name="" groupRelation="or">
+      <FileCreate onmatch="include">
+        <!-- Log file creation in suspicious locations -->
+        <Rule name="Suspicious File Creation" groupRelation="or">
+          <TargetFilename condition="contains">temp</TargetFilename>
+          <TargetFilename condition="contains">appdata</TargetFilename>
+          <TargetFilename condition="contains">programdata</TargetFilename>
+          <TargetFilename condition="end with">.exe</TargetFilename>
+          <TargetFilename condition="end with">.dll</TargetFilename>
+          <TargetFilename condition="end with">.bat</TargetFilename>
+          <TargetFilename condition="end with">.ps1</TargetFilename>
+          <TargetFilename condition="end with">.vbs</TargetFilename>
+        </Rule>
+      </FileCreate>
+    </RuleGroup>
+
+    <!-- Event ID 12/13/14: Registry Events -->
+    <RuleGroup name="" groupRelation="or">
+      <RegistryEvent onmatch="include">
+        <!-- Log registry changes in key locations -->
+        <Rule name="Important Registry Changes" groupRelation="or">
+          <TargetObject condition="contains">CurrentVersion\Run</TargetObject>
+          <TargetObject condition="contains">CurrentVersion\RunOnce</TargetObject>
+          <TargetObject condition="contains">CurrentVersion\RunServices</TargetObject>
+          <TargetObject condition="contains">CurrentVersion\RunServicesOnce</TargetObject>
+          <TargetObject condition="contains">Winlogon</TargetObject>
+          <TargetObject condition="contains">Explorer\Shell Folders</TargetObject>
+          <TargetObject condition="contains">Explorer\User Shell Folders</TargetObject>
+          <TargetObject condition="contains">Policies\Explorer\Run</TargetObject>
+          <TargetObject condition="contains">Group Policy\Scripts</TargetObject>
+        </Rule>
+      </RegistryEvent>
+    </RuleGroup>
+
+    <!-- Event ID 22: DNS Query -->
+    <RuleGroup name="" groupRelation="or">
+      <DnsQuery onmatch="include">
+        <!-- Log DNS queries -->
+        <Rule name="DNS Queries" groupRelation="or">
+          <QueryName condition="contains any">.</QueryName>
+        </Rule>
+      </DnsQuery>
+      <DnsQuery onmatch="exclude">
+        <!-- Exclude common Microsoft domains to reduce noise -->
+        <Rule name="Microsoft Domain Exclusions" groupRelation="or">
+          <QueryName condition="end with">microsoft.com</QueryName>
+          <QueryName condition="end with">windows.com</QueryName>
+          <QueryName condition="end with">windowsupdate.com</QueryName>
+          <QueryName condition="end with">live.com</QueryName>
+          <QueryName condition="end with">msftncsi.com</QueryName>
+        </Rule>
+      </DnsQuery>
+    </RuleGroup>
+
+    <!-- Event ID 23: FileDelete -->
+    <RuleGroup name="" groupRelation="or">
+      <FileDelete onmatch="include">
+        <!-- Log deletion of executable files -->
+        <Rule name="Executable File Deletion" groupRelation="or">
+          <TargetFilename condition="end with">.exe</TargetFilename>
+          <TargetFilename condition="end with">.dll</TargetFilename>
+          <TargetFilename condition="end with">.bat</TargetFilename>
+          <TargetFilename condition="end with">.ps1</TargetFilename>
+          <TargetFilename condition="end with">.vbs</TargetFilename>
+        </Rule>
+      </FileDelete>
+    </RuleGroup>
+
+  </EventFiltering>
+
+  <HashAlgorithms>SHA1,MD5,SHA256,IMPHASH</HashAlgorithms>
+  <CheckRevocation/>
+
+</Sysmon>

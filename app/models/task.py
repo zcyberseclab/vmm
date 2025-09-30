@@ -55,6 +55,18 @@ class VMTaskResult(BaseModel):
     end_time: Optional[datetime] = None
     error_message: Optional[str] = None
     alerts: List[EDRAlert] = Field(default_factory=list)
+
+
+class BehaviorAnalysisResult(BaseModel):
+    """行为分析结果"""
+    analysis_engine: str = "sysmon"
+    status: VMTaskStatus
+    start_time: datetime
+    end_time: Optional[datetime] = None
+    error_message: Optional[str] = None
+    alerts: List[EDRAlert] = Field(default_factory=list)
+    events_collected: int = 0
+    analysis_duration: Optional[float] = None
     
 
 class AnalysisTask(BaseModel):
@@ -72,7 +84,8 @@ class AnalysisTask(BaseModel):
     started_at: Optional[datetime] = None
     completed_at: Optional[datetime] = None
     error_message: Optional[str] = None
-    vm_results: List[VMTaskResult] = Field(default_factory=list)
+    edr_results: List[VMTaskResult] = Field(default_factory=list)
+    behavior_results: Optional[BehaviorAnalysisResult] = None
     
     class Config:
         json_encoders = {
@@ -106,7 +119,8 @@ class TaskDetailResponse(BaseModel):
     started_at: Optional[datetime]
     completed_at: Optional[datetime]
     error_message: Optional[str]
-    vm_results: List[VMTaskResult]
+    edr_results: List[VMTaskResult]
+    behavior_results: Optional[BehaviorAnalysisResult] = None
     
     class Config:
         json_encoders = {
@@ -119,7 +133,8 @@ class AnalysisResultResponse(BaseModel):
     task_id: str
     status: TaskStatus
     total_alerts: int
-    vm_results: List[VMTaskResult]
+    edr_results: List[VMTaskResult]
+    behavior_results: Optional[BehaviorAnalysisResult] = None
     summary: Dict[str, Any] = Field(default_factory=dict)
     
     class Config:

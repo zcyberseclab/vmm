@@ -89,12 +89,58 @@ class LoggingConfig(BaseModel):
     backup_count: int = 5
 
 
+class SysmonVMConfig(BaseModel):
+    """Sysmon虚拟机配置"""
+    name: str
+    antivirus: str
+    username: str
+    password: str
+    baseline_snapshot: str
+    desktop_path: str
+
+
+class SysmonEventCollectionConfig(BaseModel):
+    """Sysmon事件收集配置"""
+    max_events: int = 1000
+    collection_timeout: int = 30
+    event_types: List[int] = [1, 3, 5, 7, 8, 10, 11, 12, 13, 22]
+
+
+class SysmonAnalysisSettingsConfig(BaseModel):
+    """Sysmon分析设置配置"""
+    pre_execution_delay: int = 5
+    post_execution_delay: int = 60
+    enable_process_tree: bool = True
+    enable_network_analysis: bool = True
+    enable_file_analysis: bool = True
+    enable_registry_analysis: bool = True
+
+
+class SysmonOutputSettingsConfig(BaseModel):
+    """Sysmon输出设置配置"""
+    save_raw_events: bool = True
+    save_analysis_report: bool = True
+    output_format: str = "json"
+
+
+class SysmonAnalysisConfig(BaseModel):
+    """Sysmon分析配置"""
+    enabled: bool = True
+    vm: SysmonVMConfig
+    config_type: str = "light"
+    custom_config_path: str = ""
+    event_collection: SysmonEventCollectionConfig
+    analysis_settings: SysmonAnalysisSettingsConfig
+    output_settings: SysmonOutputSettingsConfig
+
+
 class Settings(BaseModel):
     """应用配置"""
     server: ServerConfig
     virtualization: VirtualizationConfig
     virtual_machines: Optional[List[VirtualMachineConfig]] = []  # 兼容性保留
     edr_analysis: Optional[EDRAnalysisConfig] = None
+    sysmon_analysis: Optional[SysmonAnalysisConfig] = None
     task_settings: TaskConfig
     logging: LoggingConfig
 

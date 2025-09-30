@@ -51,7 +51,7 @@ class AnalysisEngine:
                     status=VMTaskStatus.PENDING,
                     start_time=datetime.utcnow()
                 )
-                task.vm_results.append(vm_result)
+                task.edr_results.append(vm_result)
 
             # 并行处理所有虚拟机 - 使用信号量控制并发数
             max_concurrent_vms = min(len(task.vm_names), 8)  # 最多同时处理8个VM
@@ -62,7 +62,7 @@ class AnalysisEngine:
                     return await self._analyze_on_vm(task, vm_result)
 
             vm_tasks = []
-            for vm_result in task.vm_results:
+            for vm_result in task.edr_results:
                 vm_task = vm_task_with_semaphore(vm_result)
                 vm_tasks.append(vm_task)
 
@@ -75,7 +75,7 @@ class AnalysisEngine:
             total_alerts = 0
 
             for i, result in enumerate(results):
-                vm_result = task.vm_results[i]
+                vm_result = task.edr_results[i]
                 if isinstance(result, Exception):
                     logger.error(f"虚拟机 {vm_result.vm_name} 分析异常: {str(result)}")
                     failed_vms += 1

@@ -1,0 +1,269 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Sysmon schemaversion="4.90">
+  <!-- Sysmon configuration for EDR analysis -->
+  <!-- This configuration captures comprehensive system activity for malware analysis -->
+  
+  <EventFiltering>
+    <!-- Event ID 1: Process creation -->
+    <RuleGroup name="" groupRelation="or">
+      <ProcessCreate onmatch="include">
+        <!-- Log all process creation events -->
+        <Rule name="All Process Creation" groupRelation="or">
+          <Image condition="contains any">.</Image>
+        </Rule>
+      </ProcessCreate>
+    </RuleGroup>
+
+    <!-- Event ID 2: File creation time changed -->
+    <RuleGroup name="" groupRelation="or">
+      <FileCreateTime onmatch="include">
+        <!-- Log file creation time changes -->
+        <Rule name="File Time Changes" groupRelation="or">
+          <TargetFilename condition="contains any">.</TargetFilename>
+        </Rule>
+      </FileCreateTime>
+    </RuleGroup>
+
+    <!-- Event ID 3: Network connection -->
+    <RuleGroup name="" groupRelation="or">
+      <NetworkConnect onmatch="include">
+        <!-- Log all network connections -->
+        <Rule name="All Network Connections" groupRelation="or">
+          <Image condition="contains any">.</Image>
+        </Rule>
+      </NetworkConnect>
+    </RuleGroup>
+
+    <!-- Event ID 5: Process terminated -->
+    <RuleGroup name="" groupRelation="or">
+      <ProcessTerminate onmatch="include">
+        <!-- Log all process termination events -->
+        <Rule name="All Process Termination" groupRelation="or">
+          <Image condition="contains any">.</Image>
+        </Rule>
+      </ProcessTerminate>
+    </RuleGroup>
+
+    <!-- Event ID 6: Driver loaded -->
+    <RuleGroup name="" groupRelation="or">
+      <DriverLoad onmatch="include">
+        <!-- Log all driver loading events -->
+        <Rule name="All Driver Loading" groupRelation="or">
+          <ImageLoaded condition="contains any">.</ImageLoaded>
+        </Rule>
+      </DriverLoad>
+    </RuleGroup>
+
+    <!-- Event ID 7: Image loaded -->
+    <RuleGroup name="" groupRelation="or">
+      <ImageLoad onmatch="include">
+        <!-- Log DLL loading events -->
+        <Rule name="DLL Loading" groupRelation="or">
+          <ImageLoaded condition="end with">.dll</ImageLoaded>
+          <ImageLoaded condition="end with">.exe</ImageLoaded>
+        </Rule>
+      </ImageLoad>
+    </RuleGroup>
+
+    <!-- Event ID 8: CreateRemoteThread -->
+    <RuleGroup name="" groupRelation="or">
+      <CreateRemoteThread onmatch="include">
+        <!-- Log all remote thread creation -->
+        <Rule name="All Remote Thread Creation" groupRelation="or">
+          <SourceImage condition="contains any">.</SourceImage>
+        </Rule>
+      </CreateRemoteThread>
+    </RuleGroup>
+
+    <!-- Event ID 9: RawAccessRead -->
+    <RuleGroup name="" groupRelation="or">
+      <RawAccessRead onmatch="include">
+        <!-- Log raw disk access -->
+        <Rule name="Raw Disk Access" groupRelation="or">
+          <Image condition="contains any">.</Image>
+        </Rule>
+      </RawAccessRead>
+    </RuleGroup>
+
+    <!-- Event ID 10: ProcessAccess -->
+    <RuleGroup name="" groupRelation="or">
+      <ProcessAccess onmatch="include">
+        <!-- Log process access events -->
+        <Rule name="Process Access" groupRelation="or">
+          <SourceImage condition="contains any">.</SourceImage>
+        </Rule>
+      </ProcessAccess>
+    </RuleGroup>
+
+    <!-- Event ID 11: FileCreate -->
+    <RuleGroup name="" groupRelation="or">
+      <FileCreate onmatch="include">
+        <!-- Log file creation events -->
+        <Rule name="File Creation" groupRelation="or">
+          <TargetFilename condition="contains any">.</TargetFilename>
+        </Rule>
+      </FileCreate>
+    </RuleGroup>
+
+    <!-- Event ID 12: RegistryEvent (Object create and delete) -->
+    <RuleGroup name="" groupRelation="or">
+      <RegistryEvent onmatch="include">
+        <!-- Log registry changes -->
+        <Rule name="Registry Changes" groupRelation="or">
+          <TargetObject condition="contains any">.</TargetObject>
+        </Rule>
+      </RegistryEvent>
+    </RuleGroup>
+
+    <!-- Event ID 13: RegistryEvent (Value Set) -->
+    <RuleGroup name="" groupRelation="or">
+      <RegistryEvent onmatch="include">
+        <!-- Log registry value changes -->
+        <Rule name="Registry Value Changes" groupRelation="or">
+          <TargetObject condition="contains any">.</TargetObject>
+        </Rule>
+      </RegistryEvent>
+    </RuleGroup>
+
+    <!-- Event ID 14: RegistryEvent (Key and Value Rename) -->
+    <RuleGroup name="" groupRelation="or">
+      <RegistryEvent onmatch="include">
+        <!-- Log registry rename events -->
+        <Rule name="Registry Rename" groupRelation="or">
+          <TargetObject condition="contains any">.</TargetObject>
+        </Rule>
+      </RegistryEvent>
+    </RuleGroup>
+
+    <!-- Event ID 15: FileCreateStreamHash -->
+    <RuleGroup name="" groupRelation="or">
+      <FileCreateStreamHash onmatch="include">
+        <!-- Log alternate data stream creation -->
+        <Rule name="ADS Creation" groupRelation="or">
+          <TargetFilename condition="contains any">.</TargetFilename>
+        </Rule>
+      </FileCreateStreamHash>
+    </RuleGroup>
+
+    <!-- Event ID 17: PipeEvent (Pipe Created) -->
+    <RuleGroup name="" groupRelation="or">
+      <PipeEvent onmatch="include">
+        <!-- Log named pipe creation -->
+        <Rule name="Named Pipe Creation" groupRelation="or">
+          <PipeName condition="contains any">.</PipeName>
+        </Rule>
+      </PipeEvent>
+    </RuleGroup>
+
+    <!-- Event ID 18: PipeEvent (Pipe Connected) -->
+    <RuleGroup name="" groupRelation="or">
+      <PipeEvent onmatch="include">
+        <!-- Log named pipe connections -->
+        <Rule name="Named Pipe Connection" groupRelation="or">
+          <PipeName condition="contains any">.</PipeName>
+        </Rule>
+      </PipeEvent>
+    </RuleGroup>
+
+    <!-- Event ID 19: WmiEvent (WmiEventFilter activity detected) -->
+    <RuleGroup name="" groupRelation="or">
+      <WmiEvent onmatch="include">
+        <!-- Log WMI events -->
+        <Rule name="WMI Events" groupRelation="or">
+          <EventNamespace condition="contains any">.</EventNamespace>
+        </Rule>
+      </WmiEvent>
+    </RuleGroup>
+
+    <!-- Event ID 20: WmiEvent (WmiEventConsumer activity detected) -->
+    <RuleGroup name="" groupRelation="or">
+      <WmiEvent onmatch="include">
+        <!-- Log WMI consumer events -->
+        <Rule name="WMI Consumer Events" groupRelation="or">
+          <Destination condition="contains any">.</Destination>
+        </Rule>
+      </WmiEvent>
+    </RuleGroup>
+
+    <!-- Event ID 21: WmiEvent (WmiEventConsumerToFilter activity detected) -->
+    <RuleGroup name="" groupRelation="or">
+      <WmiEvent onmatch="include">
+        <!-- Log WMI consumer to filter binding -->
+        <Rule name="WMI Consumer Filter Binding" groupRelation="or">
+          <Consumer condition="contains any">.</Consumer>
+        </Rule>
+      </WmiEvent>
+    </RuleGroup>
+
+    <!-- Event ID 22: DNSEvent (DNS query) -->
+    <RuleGroup name="" groupRelation="or">
+      <DnsQuery onmatch="include">
+        <!-- Log DNS queries -->
+        <Rule name="DNS Queries" groupRelation="or">
+          <QueryName condition="contains any">.</QueryName>
+        </Rule>
+      </DnsQuery>
+    </RuleGroup>
+
+    <!-- Event ID 23: FileDelete (File Delete archived) -->
+    <RuleGroup name="" groupRelation="or">
+      <FileDelete onmatch="include">
+        <!-- Log file deletion events -->
+        <Rule name="File Deletion" groupRelation="or">
+          <TargetFilename condition="contains any">.</TargetFilename>
+        </Rule>
+      </FileDelete>
+    </RuleGroup>
+
+    <!-- Event ID 24: ClipboardChange (New content in clipboard) -->
+    <RuleGroup name="" groupRelation="or">
+      <ClipboardChange onmatch="include">
+        <!-- Log clipboard changes -->
+        <Rule name="Clipboard Changes" groupRelation="or">
+          <Image condition="contains any">.</Image>
+        </Rule>
+      </ClipboardChange>
+    </RuleGroup>
+
+    <!-- Event ID 25: ProcessTampering (Process image change) -->
+    <RuleGroup name="" groupRelation="or">
+      <ProcessTampering onmatch="include">
+        <!-- Log process tampering -->
+        <Rule name="Process Tampering" groupRelation="or">
+          <Image condition="contains any">.</Image>
+        </Rule>
+      </ProcessTampering>
+    </RuleGroup>
+
+    <!-- Event ID 26: FileDeleteDetected (File Delete logged) -->
+    <RuleGroup name="" groupRelation="or">
+      <FileDeleteDetected onmatch="include">
+        <!-- Log file delete detection -->
+        <Rule name="File Delete Detection" groupRelation="or">
+          <TargetFilename condition="contains any">.</TargetFilename>
+        </Rule>
+      </FileDeleteDetected>
+    </RuleGroup>
+
+  </EventFiltering>
+
+  <HashAlgorithms>*</HashAlgorithms>
+  <CheckRevocation/>
+  <ImageLoad/>
+  <ProcessTerminate/>
+  <NetworkConnect/>
+  <CreateRemoteThread/>
+  <RawAccessRead/>
+  <ProcessAccess/>
+  <FileCreate/>
+  <RegistryEvent/>
+  <FileCreateStreamHash/>
+  <PipeEvent/>
+  <WmiEvent/>
+  <DnsQuery/>
+  <FileDelete/>
+  <ClipboardChange/>
+  <ProcessTampering/>
+  <FileDeleteDetected/>
+
+</Sysmon>

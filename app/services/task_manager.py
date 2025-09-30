@@ -6,7 +6,7 @@ from datetime import datetime, timedelta
 from typing import Dict, List, Optional
 from loguru import logger
 
-from app.models.task import AnalysisTask, TaskStatus, VMTaskResult, VMTaskStatus
+from app.models.task import AnalysisTask, TaskStatus, VMTaskResult, VMTaskStatus, EDRAlert, BehaviorAnalysisResult
 from app.core.config import get_settings
 
 
@@ -231,11 +231,30 @@ class SimpleTaskManager:
             task.status = TaskStatus.RUNNING
             task.started_at = datetime.utcnow()
 
-            # 创建分析引擎
-            engine = AnalysisEngine()
+            # 检查是否启用Sysmon分析
+            if (hasattr(self.settings, 'sysmon_analysis') and
+                self.settings.sysmon_analysis and
+                self.settings.sysmon_analysis.enabled):
 
-            # 执行分析
-            await engine.analyze_sample(task)
+                logger.info(f"🔍 Sysmon分析已启用，同时运行Sysmon和EDR分析: {task.task_id}")
+
+                # 先运行Sysmon分析
+                await self._process_with_sysmon(task)
+
+                # 然后运行标准EDR分析（如果任务指定了vm_names）
+                if task.vm_names:
+                    logger.info(f"📊 开始标准EDR分析: {task.task_id} 在 {len(task.vm_names)} 个VM上")
+                    engine = AnalysisEngine()
+                    await engine.analyze_sample(task)
+                else:
+                    logger.info(f"📊 跳过标准EDR分析: 任务 {task.task_id} 未指定vm_names")
+
+            else:
+                logger.info(f"📊 使用标准EDR分析引擎分析任务: {task.task_id}")
+                # 创建标准分析引擎
+                engine = AnalysisEngine()
+                # 执行分析
+                await engine.analyze_sample(task)
 
             # 更新任务状态
             task.status = TaskStatus.COMPLETED
@@ -256,7 +275,259 @@ class SimpleTaskManager:
             task.error_message = str(e)
             task.completed_at = datetime.utcnow()
             logger.error(f"任务执行失败: {task.task_id} - {str(e)}")
-    
+
+    async def _process_with_sysmon(self, task: AnalysisTask):
+        """
+        使用Sysmon引擎处理任务
+
+        Args:
+            task: 分析任务
+        """
+        from app.services.sysmon import get_sysmon_engine
+
+        try:
+            # 获取Sysmon分析引擎
+            sysmon_engine = await get_sysmon_engine()
+
+            # 创建行为分析结果
+            start_time = datetime.utcnow()
+            behavior_result = BehaviorAnalysisResult(
+                analysis_engine="sysmon",
+                status=VMTaskStatus.PENDING,
+                start_time=start_time
+            )
+            task.behavior_results = behavior_result
+
+            logger.info(f"🚀 开始Sysmon分析: {task.file_name}")
+
+            # 更新状态
+            behavior_result.status = VMTaskStatus.ANALYZING
+
+            # 执行Sysmon分析
+            analysis_result = await sysmon_engine.analyze_sample(
+                sample_path=task.file_path,
+                sample_hash=task.file_hash,
+                analysis_timeout=task.timeout,
+                config_type=self.settings.sysmon_analysis.config_type
+            )
+
+            # 将Sysmon分析结果转换为标准格式
+            alerts = self._convert_sysmon_to_alerts(analysis_result)
+            behavior_result.alerts = alerts
+            behavior_result.events_collected = analysis_result.get('raw_events_count', 0)
+
+            # 更新状态
+            end_time = datetime.utcnow()
+            behavior_result.status = VMTaskStatus.COMPLETED
+            behavior_result.end_time = end_time
+            behavior_result.analysis_duration = (end_time - start_time).total_seconds()
+
+            logger.info(f"✅ Sysmon分析完成: {task.file_name}, 生成 {len(alerts)} 个告警")
+
+        except Exception as e:
+            logger.error(f"❌ Sysmon分析失败: {task.file_name} - {str(e)}")
+            if task.behavior_results:
+                task.behavior_results.status = VMTaskStatus.FAILED
+                task.behavior_results.end_time = datetime.utcnow()
+                task.behavior_results.error_message = str(e)
+            raise
+
+    def _convert_sysmon_to_alerts(self, sysmon_result: dict) -> list:
+        """
+        将Sysmon分析结果转换为标准告警格式
+
+        Args:
+            sysmon_result: Sysmon分析结果
+
+        Returns:
+            list: 标准告警列表
+        """
+        # Sysmon事件ID映射表
+        sysmon_event_map = {
+            1: {"name": "Process Creation", "description": "进程创建事件", "severity": "medium"},
+            2: {"name": "File Creation Time Changed", "description": "文件创建时间更改", "severity": "low"},
+            3: {"name": "Network Connection", "description": "网络连接事件", "severity": "medium"},
+            4: {"name": "Sysmon Service State Changed", "description": "Sysmon服务状态更改", "severity": "info"},
+            5: {"name": "Process Terminated", "description": "进程终止事件", "severity": "low"},
+            6: {"name": "Driver Loaded", "description": "驱动程序加载", "severity": "medium"},
+            7: {"name": "Image Loaded", "description": "镜像/DLL加载", "severity": "low"},
+            8: {"name": "CreateRemoteThread", "description": "远程线程创建", "severity": "high"},
+            9: {"name": "RawAccessRead", "description": "原始磁盘访问", "severity": "high"},
+            10: {"name": "ProcessAccess", "description": "进程访问事件", "severity": "medium"},
+            11: {"name": "FileCreate", "description": "文件创建事件", "severity": "medium"},
+            12: {"name": "RegistryEvent (Object create and delete)", "description": "注册表对象创建/删除", "severity": "medium"},
+            13: {"name": "RegistryEvent (Value Set)", "description": "注册表值设置", "severity": "medium"},
+            14: {"name": "RegistryEvent (Key and Value Rename)", "description": "注册表键值重命名", "severity": "medium"},
+            15: {"name": "FileCreateStreamHash", "description": "文件流创建", "severity": "medium"},
+            16: {"name": "ServiceConfigurationChange", "description": "服务配置更改", "severity": "medium"},
+            17: {"name": "PipeEvent (Pipe Created)", "description": "命名管道创建", "severity": "medium"},
+            18: {"name": "PipeEvent (Pipe Connected)", "description": "命名管道连接", "severity": "medium"},
+            19: {"name": "WmiEvent (WmiEventFilter activity detected)", "description": "WMI事件过滤器活动", "severity": "high"},
+            20: {"name": "WmiEvent (WmiEventConsumer activity detected)", "description": "WMI事件消费者活动", "severity": "high"},
+            21: {"name": "WmiEvent (WmiEventConsumerToFilter activity detected)", "description": "WMI事件消费者到过滤器活动", "severity": "high"},
+            22: {"name": "DNSEvent (DNS query)", "description": "DNS查询事件", "severity": "medium"},
+            23: {"name": "FileDelete (File Delete archived)", "description": "文件删除事件", "severity": "medium"},
+            24: {"name": "ClipboardChange (New content in the clipboard)", "description": "剪贴板内容更改", "severity": "low"},
+            25: {"name": "ProcessTampering (Process image change)", "description": "进程镜像篡改", "severity": "high"},
+            26: {"name": "FileDeleteDetected (File Delete logged)", "description": "文件删除检测", "severity": "medium"},
+            27: {"name": "FileBlockExecutable", "description": "可执行文件阻止", "severity": "high"},
+            28: {"name": "FileBlockShredding", "description": "文件粉碎阻止", "severity": "medium"},
+            29: {"name": "FileExecutableDetected", "description": "可执行文件检测", "severity": "medium"},
+        }
+
+        alerts = []
+
+        try:
+            sysmon_analysis = sysmon_result.get('sysmon_analysis', {})
+
+            # 基于事件类型创建告警
+            event_types = sysmon_analysis.get('event_types', {})
+            for event_id, count in event_types.items():
+                if count > 0:
+                    # 获取事件详细信息
+                    event_info = sysmon_event_map.get(int(event_id), {
+                        "name": f"Unknown Event {event_id}",
+                        "description": f"未知Sysmon事件类型 {event_id}",
+                        "severity": "medium"
+                    })
+
+                    alert = EDRAlert(
+                        alert_type=f'Sysmon Event ID {event_id}: {event_info["name"]}',
+                        severity=event_info["severity"],
+                        detection_time=sysmon_result.get('timestamp'),
+                        event_id=str(event_id),
+                        detect_reason=f'检测到 {count} 个 {event_info["description"]} 事件',
+                        source='sysmon'
+                    )
+                    alerts.append(alert)
+
+            # 基于详细事件信息创建告警
+            detailed_events = sysmon_analysis.get('detailed_events', [])
+            process_events = {}
+            network_events = []
+            file_events = []
+
+            # 分类详细事件
+            for event in detailed_events:
+                event_type = event.get('event_type', '')
+                if event_type == 'Process Creation':
+                    image = event.get('image', 'Unknown')
+                    if image not in process_events:
+                        process_events[image] = []
+                    process_events[image].append(event)
+                elif event_type == 'Network Connection':
+                    network_events.append(event)
+                elif event_type in ['File Create', 'File Delete']:
+                    file_events.append(event)
+
+            # 基于进程活动创建告警（使用详细信息）
+            for process, events in process_events.items():
+                if len(events) > 0:
+                    # 获取第一个事件的详细信息作为代表
+                    sample_event = events[0]
+                    alert = EDRAlert(
+                        alert_type=f'Process Activity: {process}',
+                        severity='low',
+                        detection_time=sysmon_result.get('timestamp'),
+                        process_name=process.split('\\')[-1] if '\\' in process else process,
+                        command_line=sample_event.get('command_line', ''),
+                        file_path=process,
+                        detect_reason=f'检测到进程 {process} 执行了 {len(events)} 次',
+                        source='sysmon'
+                    )
+                    alerts.append(alert)
+
+            # 基于网络连接创建告警（使用详细信息）
+            if network_events:
+                unique_connections = {}
+                for event in network_events:
+                    key = f"{event.get('destination_ip', '')}:{event.get('destination_port', '')}"
+                    if key not in unique_connections:
+                        unique_connections[key] = []
+                    unique_connections[key].append(event)
+
+                # 获取第一个网络事件的详细信息
+                sample_net_event = network_events[0] if network_events else {}
+                alert = EDRAlert(
+                    alert_type='Network Activity (Detailed)',
+                    severity='medium',
+                    detection_time=sysmon_result.get('timestamp'),
+                    source_ip=sample_net_event.get('source_ip', ''),
+                    destination_ip=sample_net_event.get('destination_ip', ''),
+                    process_name=sample_net_event.get('image', '').split('\\')[-1] if sample_net_event.get('image') else '',
+                    detect_reason=f'检测到 {len(network_events)} 个网络连接，涉及 {len(unique_connections)} 个不同目标',
+                    source='sysmon'
+                )
+                alerts.append(alert)
+
+            # 基于文件操作创建告警（使用详细信息）
+            if file_events:
+                file_creates = [e for e in file_events if e.get('event_type') == 'File Create']
+                file_deletes = [e for e in file_events if e.get('event_type') == 'File Delete']
+
+                if file_creates:
+                    sample_file_event = file_creates[0]
+                    alert = EDRAlert(
+                        alert_type='File Creation Activity (Detailed)',
+                        severity='medium',
+                        detection_time=sysmon_result.get('timestamp'),
+                        file_path=sample_file_event.get('target_filename', ''),
+                        process_name=sample_file_event.get('image', '').split('\\')[-1] if sample_file_event.get('image') else '',
+                        detect_reason=f'检测到 {len(file_creates)} 个文件创建事件',
+                        source='sysmon'
+                    )
+                    alerts.append(alert)
+
+                if file_deletes:
+                    sample_delete_event = file_deletes[0]
+                    alert = EDRAlert(
+                        alert_type='File Deletion Activity (Detailed)',
+                        severity='medium',
+                        detection_time=sysmon_result.get('timestamp'),
+                        file_path=sample_delete_event.get('target_filename', ''),
+                        process_name=sample_delete_event.get('image', '').split('\\')[-1] if sample_delete_event.get('image') else '',
+                        detect_reason=f'检测到 {len(file_deletes)} 个文件删除事件',
+                        source='sysmon'
+                    )
+                    alerts.append(alert)
+
+            # 基于网络连接创建告警
+            network_connections = sysmon_analysis.get('network_connections', [])
+            if network_connections:
+                alert = EDRAlert(
+                    alert_type='Network Activity',
+                    severity='medium',
+                    detection_time=sysmon_result.get('timestamp'),
+                    detect_reason=f'检测到 {len(network_connections)} 个网络连接',
+                    source='sysmon'
+                )
+                alerts.append(alert)
+
+            # 如果没有生成任何告警，创建一个基础告警
+            if not alerts:
+                alert = EDRAlert(
+                    alert_type='Sysmon Analysis Complete',
+                    severity='info',
+                    detection_time=sysmon_result.get('timestamp'),
+                    detect_reason=f'Sysmon分析完成，收集了 {sysmon_result.get("raw_events_count", 0)} 个事件',
+                    source='sysmon'
+                )
+                alerts.append(alert)
+
+        except Exception as e:
+            logger.error(f"转换Sysmon结果为告警时出错: {str(e)}")
+            # 创建错误告警
+            alert = EDRAlert(
+                alert_type='Sysmon Conversion Error',
+                severity='error',
+                detection_time=sysmon_result.get('timestamp'),
+                detect_reason=f'转换Sysmon分析结果时出错: {str(e)}',
+                source='sysmon'
+            )
+            alerts.append(alert)
+
+        return alerts
+
     async def get_queue_status(self) -> Dict[str, int]:
         """
         获取队列状态

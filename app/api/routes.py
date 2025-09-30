@@ -118,6 +118,7 @@ async def submit_analysis(
         )
 
 
+
 @router.get("/task/{task_id}", response_model=TaskDetailResponse)
 async def get_task_status(
     task_id: str,
@@ -183,24 +184,30 @@ async def get_analysis_result(
             )
         
         # 统计告警数量
-        total_alerts = sum(len(vm_result.alerts) for vm_result in task.vm_results)
-        
+        edr_alerts = sum(len(vm_result.alerts) for vm_result in task.edr_results)
+        behavior_alerts = len(task.behavior_results.alerts) if task.behavior_results else 0
+        total_alerts = edr_alerts + behavior_alerts
+
         # 生成摘要
         summary = {
-            "total_vms": len(task.vm_results),
-            "successful_vms": len([r for r in task.vm_results if r.status == "completed"]),
-            "failed_vms": len([r for r in task.vm_results if r.status == "failed"]),
+            "total_vms": len(task.edr_results),
+            "successful_vms": len([r for r in task.edr_results if r.status == "completed"]),
+            "failed_vms": len([r for r in task.edr_results if r.status == "failed"]),
+            "edr_alerts": edr_alerts,
+            "behavior_alerts": behavior_alerts,
+            "behavior_analysis_enabled": task.behavior_results is not None,
             "analysis_duration": (
-                (task.completed_at - task.started_at).total_seconds() 
+                (task.completed_at - task.started_at).total_seconds()
                 if task.started_at and task.completed_at else None
             )
         }
-        
+
         return AnalysisResultResponse(
             task_id=task.task_id,
             status=task.status,
             total_alerts=total_alerts,
-            vm_results=task.vm_results,
+            edr_results=task.edr_results,
+            behavior_results=task.behavior_results,
             summary=summary
         )
         
