@@ -423,16 +423,53 @@ class SimpleTaskManager:
             # 基于进程活动创建告警（使用详细信息）
             for process, events in process_events.items():
                 if len(events) > 0:
-                    # 获取第一个事件的详细信息作为代表
-                    sample_event = events[0]
+                    # 收集所有进程创建的详细信息
+                    process_details = []
+                    command_lines = set()
+                    parent_processes = set()
+                    users = set()
+
+                    for event in events:
+                        detail = {
+                            'timestamp': event.get('timestamp', ''),
+                            'command_line': event.get('command_line', ''),
+                            'parent_image': event.get('parent_image', ''),
+                            'user': event.get('user', ''),
+                            'process_id': event.get('process_id', ''),
+                            'parent_process_id': event.get('parent_process_id', '')
+                        }
+                        process_details.append(detail)
+
+                        if event.get('command_line'):
+                            command_lines.add(event.get('command_line'))
+                        if event.get('parent_image'):
+                            parent_processes.add(event.get('parent_image'))
+                        if event.get('user'):
+                            users.add(event.get('user'))
+
+                    # 构建详细的检测原因
+                    detect_reason_parts = [f'检测到进程 {process} 创建了 {len(events)} 次']
+                    if command_lines:
+                        detect_reason_parts.append(f'命令行: {"; ".join(list(command_lines)[:3])}')
+                    if parent_processes:
+                        detect_reason_parts.append(f'父进程: {"; ".join(list(parent_processes)[:3])}')
+                    if users:
+                        detect_reason_parts.append(f'用户: {"; ".join(list(users)[:3])}')
+
+                    # 获取最常见的命令行
+                    most_common_cmd = max(command_lines, key=lambda x: sum(1 for e in events if e.get('command_line') == x)) if command_lines else ''
+
+                    # 提取进程名称
+                    process_name = process.split('\\')[-1] if '\\' in process else process
+
                     alert = EDRAlert(
-                        alert_type=f'Process Activity: {process}',
-                        severity='low',
+                        alert_type=f'Process Creation: {process_name}',
+                        severity='medium' if any(keyword in process.lower() for keyword in ['powershell', 'cmd']) else 'low',
                         detection_time=sysmon_result.get('timestamp'),
                         process_name=process.split('\\')[-1] if '\\' in process else process,
-                        command_line=sample_event.get('command_line', ''),
+                        command_line=most_common_cmd,
                         file_path=process,
-                        detect_reason=f'检测到进程 {process} 执行了 {len(events)} 次',
+                        detect_reason='; '.join(detect_reason_parts),
                         source='sysmon'
                     )
                     alerts.append(alert)
@@ -440,11 +477,40 @@ class SimpleTaskManager:
             # 基于网络连接创建告警（使用详细信息）
             if network_events:
                 unique_connections = {}
+                processes_involved = set()
+                all_connections = []
+
                 for event in network_events:
-                    key = f"{event.get('destination_ip', '')}:{event.get('destination_port', '')}"
+                    src_ip = event.get('source_ip', '')
+                    dest_ip = event.get('destination_ip', '')
+                    dest_port = event.get('destination_port', '')
+                    src_port = event.get('source_port', '')
+                    process = event.get('image', '')
+                    protocol = event.get('protocol', '')
+
+                    # 记录完整连接信息
+                    connection_info = {
+                        'source_ip': src_ip,
+                        'source_port': src_port,
+                        'destination_ip': dest_ip,
+                        'destination_port': dest_port,
+                        'protocol': protocol,
+                        'process': process,
+                        'timestamp': event.get('timestamp', '')
+                    }
+                    all_connections.append(connection_info)
+
+                    key = f"{src_ip}:{src_port} -> {dest_ip}:{dest_port}"
                     if key not in unique_connections:
                         unique_connections[key] = []
                     unique_connections[key].append(event)
+
+                    if process:
+                        processes_involved.add(process.split('\\')[-1] if '\\' in process else process)
+
+                detect_reason_parts = [f'检测到 {len(network_events)} 个网络连接事件']
+                detect_reason_parts.append(f'涉及 {len(unique_connections)} 个不同连接')
+                detect_reason_parts.append(f'涉及进程: {", ".join(list(processes_involved))}')
 
                 # 获取第一个网络事件的详细信息
                 sample_net_event = network_events[0] if network_events else {}
@@ -455,7 +521,8 @@ class SimpleTaskManager:
                     source_ip=sample_net_event.get('source_ip', ''),
                     destination_ip=sample_net_event.get('destination_ip', ''),
                     process_name=sample_net_event.get('image', '').split('\\')[-1] if sample_net_event.get('image') else '',
-                    detect_reason=f'检测到 {len(network_events)} 个网络连接，涉及 {len(unique_connections)} 个不同目标',
+                    network_connections=all_connections,  # 使用数组存储所有网络连接
+                    detect_reason='; '.join(detect_reason_parts),
                     source='sysmon'
                 )
                 alerts.append(alert)
@@ -466,39 +533,110 @@ class SimpleTaskManager:
                 file_deletes = [e for e in file_events if e.get('event_type') == 'File Delete']
 
                 if file_creates:
-                    sample_file_event = file_creates[0]
+                    # 收集所有创建的文件信息
+                    created_files = []
+                    processes_involved = set()
+                    file_extensions = set()
+
+                    for event in file_creates:
+                        file_path = event.get('target_filename', '')
+                        process = event.get('image', '')
+                        created_files.append({
+                            'file_path': file_path,
+                            'process': process,
+                            'timestamp': event.get('timestamp', ''),
+                            'process_id': event.get('process_id', '')
+                        })
+
+                        if process:
+                            processes_involved.add(process.split('\\')[-1] if '\\' in process else process)
+
+                        if file_path and '.' in file_path:
+                            ext = file_path.split('.')[-1].lower()
+                            file_extensions.add(ext)
+
+                    # 构建完整的文件路径列表
+                    all_file_paths = [f['file_path'] for f in created_files if f['file_path']]
+                    detect_reason_parts = [f'检测到 {len(file_creates)} 个文件创建事件']
+                    detect_reason_parts.append(f'涉及进程: {", ".join(list(processes_involved))}')
+                    detect_reason_parts.append(f'文件类型: {", ".join(list(file_extensions))}')
+
                     alert = EDRAlert(
                         alert_type='File Creation Activity (Detailed)',
                         severity='medium',
                         detection_time=sysmon_result.get('timestamp'),
-                        file_path=sample_file_event.get('target_filename', ''),
-                        process_name=sample_file_event.get('image', '').split('\\')[-1] if sample_file_event.get('image') else '',
-                        detect_reason=f'检测到 {len(file_creates)} 个文件创建事件',
+                        file_path=created_files[0]['file_path'] if created_files else '',
+                        file_paths=all_file_paths,  # 使用数组存储所有文件路径
+                        process_name=list(processes_involved)[0] if processes_involved else '',
+                        detect_reason='; '.join(detect_reason_parts),
                         source='sysmon'
                     )
                     alerts.append(alert)
 
                 if file_deletes:
-                    sample_delete_event = file_deletes[0]
+                    # 收集所有删除的文件信息
+                    deleted_files = []
+                    processes_involved = set()
+                    file_extensions = set()
+
+                    for event in file_deletes:
+                        file_path = event.get('target_filename', '')
+                        process = event.get('image', '')
+                        deleted_files.append({
+                            'file_path': file_path,
+                            'process': process,
+                            'timestamp': event.get('timestamp', ''),
+                            'process_id': event.get('process_id', '')
+                        })
+
+                        if process:
+                            processes_involved.add(process.split('\\')[-1] if '\\' in process else process)
+
+                        if file_path and '.' in file_path:
+                            ext = file_path.split('.')[-1].lower()
+                            file_extensions.add(ext)
+
+                    # 构建完整的文件路径列表
+                    all_file_paths = [f['file_path'] for f in deleted_files if f['file_path']]
+                    detect_reason_parts = [f'检测到 {len(file_deletes)} 个文件删除事件']
+                    detect_reason_parts.append(f'涉及进程: {", ".join(list(processes_involved))}')
+                    detect_reason_parts.append(f'文件类型: {", ".join(list(file_extensions))}')
+
                     alert = EDRAlert(
                         alert_type='File Deletion Activity (Detailed)',
                         severity='medium',
                         detection_time=sysmon_result.get('timestamp'),
-                        file_path=sample_delete_event.get('target_filename', ''),
-                        process_name=sample_delete_event.get('image', '').split('\\')[-1] if sample_delete_event.get('image') else '',
-                        detect_reason=f'检测到 {len(file_deletes)} 个文件删除事件',
+                        file_path=deleted_files[0]['file_path'] if deleted_files else '',
+                        file_paths=all_file_paths,  # 使用数组存储所有文件路径
+                        process_name=list(processes_involved)[0] if processes_involved else '',
+                        detect_reason='; '.join(detect_reason_parts),
                         source='sysmon'
                     )
                     alerts.append(alert)
 
-            # 基于网络连接创建告警
+            # 基于网络连接创建告警（旧格式兼容）
             network_connections = sysmon_analysis.get('network_connections', [])
             if network_connections:
+                # 提取连接详情
+                connection_details = []
+                for conn in network_connections:
+                    if isinstance(conn, dict):
+                        details = conn.get('details', '')
+                        timestamp = conn.get('timestamp', '')
+                        if details:
+                            connection_details.append(f"{timestamp}: {details}")
+                    else:
+                        connection_details.append(str(conn))
+
+                detect_reason_parts = [f'检测到 {len(network_connections)} 个网络连接']
+                if connection_details:
+                    detect_reason_parts.append(f'连接详情: {"; ".join(connection_details[:10])}')  # 限制显示前10个
+
                 alert = EDRAlert(
                     alert_type='Network Activity',
                     severity='medium',
                     detection_time=sysmon_result.get('timestamp'),
-                    detect_reason=f'检测到 {len(network_connections)} 个网络连接',
+                    detect_reason='; '.join(detect_reason_parts),
                     source='sysmon'
                 )
                 alerts.append(alert)

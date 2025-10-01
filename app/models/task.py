@@ -45,6 +45,8 @@ class EDRAlert(BaseModel):
     detection_time: Optional[str] = None
     event_id: Optional[str] = None
     file_path: Optional[str] = None
+    file_paths: Optional[List[str]] = Field(default_factory=list)  # 文件路径数组
+    network_connections: Optional[List[dict]] = Field(default_factory=list)  # 网络连接数组
     source: Optional[str] = None
  
 class VMTaskResult(BaseModel):
