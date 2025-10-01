@@ -6,7 +6,7 @@ from datetime import datetime, timedelta
 from typing import Dict, List, Optional
 from loguru import logger
 
-from app.models.task import AnalysisTask, TaskStatus, VMTaskResult, VMTaskStatus, EDRAlert, BehaviorAnalysisResult
+from app.models.task import AnalysisTask, TaskStatus, VMTaskResult, VMTaskStatus, EDRAlert, BehaviorAnalysisResult, SysmonAlert, SysmonEvent
 from app.core.config import get_settings
 
 
@@ -311,10 +311,15 @@ class SimpleTaskManager:
                 config_type=self.settings.sysmon_analysis.config_type
             )
 
-            # 将Sysmon分析结果转换为标准格式
+            # 将Sysmon分析结果转换为SysmonAlert格式
             alerts = self._convert_sysmon_to_alerts(analysis_result)
             behavior_result.alerts = alerts
             behavior_result.events_collected = analysis_result.get('raw_events_count', 0)
+
+            # 存储原始事件
+            detailed_events = analysis_result.get('sysmon_analysis', {}).get('detailed_events', [])
+            raw_events = self._convert_sysmon_events_to_objects(detailed_events)
+            behavior_result.raw_events = raw_events
 
             # 更新状态
             end_time = datetime.utcnow()
@@ -334,337 +339,265 @@ class SimpleTaskManager:
 
     def _convert_sysmon_to_alerts(self, sysmon_result: dict) -> list:
         """
-        将Sysmon分析结果转换为标准告警格式
+        将Sysmon分析结果转换为SysmonAlert格式
 
         Args:
             sysmon_result: Sysmon分析结果
 
         Returns:
-            list: 标准告警列表
+            list: SysmonAlert列表
         """
-        # Sysmon事件ID映射表
-        sysmon_event_map = {
-            1: {"name": "Process Creation", "description": "进程创建事件", "severity": "medium"},
-            2: {"name": "File Creation Time Changed", "description": "文件创建时间更改", "severity": "low"},
-            3: {"name": "Network Connection", "description": "网络连接事件", "severity": "medium"},
-            4: {"name": "Sysmon Service State Changed", "description": "Sysmon服务状态更改", "severity": "info"},
-            5: {"name": "Process Terminated", "description": "进程终止事件", "severity": "low"},
-            6: {"name": "Driver Loaded", "description": "驱动程序加载", "severity": "medium"},
-            7: {"name": "Image Loaded", "description": "镜像/DLL加载", "severity": "low"},
-            8: {"name": "CreateRemoteThread", "description": "远程线程创建", "severity": "high"},
-            9: {"name": "RawAccessRead", "description": "原始磁盘访问", "severity": "high"},
-            10: {"name": "ProcessAccess", "description": "进程访问事件", "severity": "medium"},
-            11: {"name": "FileCreate", "description": "文件创建事件", "severity": "medium"},
-            12: {"name": "RegistryEvent (Object create and delete)", "description": "注册表对象创建/删除", "severity": "medium"},
-            13: {"name": "RegistryEvent (Value Set)", "description": "注册表值设置", "severity": "medium"},
-            14: {"name": "RegistryEvent (Key and Value Rename)", "description": "注册表键值重命名", "severity": "medium"},
-            15: {"name": "FileCreateStreamHash", "description": "文件流创建", "severity": "medium"},
-            16: {"name": "ServiceConfigurationChange", "description": "服务配置更改", "severity": "medium"},
-            17: {"name": "PipeEvent (Pipe Created)", "description": "命名管道创建", "severity": "medium"},
-            18: {"name": "PipeEvent (Pipe Connected)", "description": "命名管道连接", "severity": "medium"},
-            19: {"name": "WmiEvent (WmiEventFilter activity detected)", "description": "WMI事件过滤器活动", "severity": "high"},
-            20: {"name": "WmiEvent (WmiEventConsumer activity detected)", "description": "WMI事件消费者活动", "severity": "high"},
-            21: {"name": "WmiEvent (WmiEventConsumerToFilter activity detected)", "description": "WMI事件消费者到过滤器活动", "severity": "high"},
-            22: {"name": "DNSEvent (DNS query)", "description": "DNS查询事件", "severity": "medium"},
-            23: {"name": "FileDelete (File Delete archived)", "description": "文件删除事件", "severity": "medium"},
-            24: {"name": "ClipboardChange (New content in the clipboard)", "description": "剪贴板内容更改", "severity": "low"},
-            25: {"name": "ProcessTampering (Process image change)", "description": "进程镜像篡改", "severity": "high"},
-            26: {"name": "FileDeleteDetected (File Delete logged)", "description": "文件删除检测", "severity": "medium"},
-            27: {"name": "FileBlockExecutable", "description": "可执行文件阻止", "severity": "high"},
-            28: {"name": "FileBlockShredding", "description": "文件粉碎阻止", "severity": "medium"},
-            29: {"name": "FileExecutableDetected", "description": "可执行文件检测", "severity": "medium"},
-        }
-
         alerts = []
 
         try:
             sysmon_analysis = sysmon_result.get('sysmon_analysis', {})
-
-            # 基于事件类型创建告警
-            event_types = sysmon_analysis.get('event_types', {})
-            for event_id, count in event_types.items():
-                if count > 0:
-                    # 获取事件详细信息
-                    event_info = sysmon_event_map.get(int(event_id), {
-                        "name": f"Unknown Event {event_id}",
-                        "description": f"未知Sysmon事件类型 {event_id}",
-                        "severity": "medium"
-                    })
-
-                    alert = EDRAlert(
-                        alert_type=f'Sysmon Event ID {event_id}: {event_info["name"]}',
-                        severity=event_info["severity"],
-                        detection_time=sysmon_result.get('timestamp'),
-                        event_id=str(event_id),
-                        detect_reason=f'检测到 {count} 个 {event_info["description"]} 事件',
-                        source='sysmon'
-                    )
-                    alerts.append(alert)
-
-            # 基于详细事件信息创建告警
             detailed_events = sysmon_analysis.get('detailed_events', [])
-            process_events = {}
-            network_events = []
-            file_events = []
 
-            # 分类详细事件
-            for event in detailed_events:
-                event_type = event.get('event_type', '')
-                if event_type == 'Process Creation':
-                    image = event.get('image', 'Unknown')
-                    if image not in process_events:
-                        process_events[image] = []
-                    process_events[image].append(event)
-                elif event_type == 'Network Connection':
-                    network_events.append(event)
-                elif event_type in ['File Create', 'File Delete']:
-                    file_events.append(event)
+            # 转换详细事件为SysmonEvent对象
+            sysmon_events = self._convert_sysmon_events_to_objects(detailed_events)
 
-            # 基于进程活动创建告警（使用详细信息）
-            for process, events in process_events.items():
-                if len(events) > 0:
-                    # 收集所有进程创建的详细信息
-                    process_details = []
-                    command_lines = set()
-                    parent_processes = set()
-                    users = set()
+            # 按事件类型分组
+            events_by_type = {}
+            for event in sysmon_events:
+                event_type = event.event_name
+                if event_type not in events_by_type:
+                    events_by_type[event_type] = []
+                events_by_type[event_type].append(event)
 
-                    for event in events:
-                        detail = {
-                            'timestamp': event.get('timestamp', ''),
-                            'command_line': event.get('command_line', ''),
-                            'parent_image': event.get('parent_image', ''),
-                            'user': event.get('user', ''),
-                            'process_id': event.get('process_id', ''),
-                            'parent_process_id': event.get('parent_process_id', '')
-                        }
-                        process_details.append(detail)
+            # 创建进程创建告警
+            if 'Process Creation' in events_by_type:
+                process_events = events_by_type['Process Creation']
+                processes_by_image = {}
 
-                        if event.get('command_line'):
-                            command_lines.add(event.get('command_line'))
-                        if event.get('parent_image'):
-                            parent_processes.add(event.get('parent_image'))
-                        if event.get('user'):
-                            users.add(event.get('user'))
+                for event in process_events:
+                    image = event.image or 'Unknown'
+                    if image not in processes_by_image:
+                        processes_by_image[image] = []
+                    processes_by_image[image].append(event)
 
-                    # 构建详细的检测原因
-                    detect_reason_parts = [f'检测到进程 {process} 创建了 {len(events)} 次']
-                    if command_lines:
-                        detect_reason_parts.append(f'命令行: {"; ".join(list(command_lines)[:3])}')
-                    if parent_processes:
-                        detect_reason_parts.append(f'父进程: {"; ".join(list(parent_processes)[:3])}')
-                    if users:
-                        detect_reason_parts.append(f'用户: {"; ".join(list(users)[:3])}')
+                for image, events in processes_by_image.items():
+                    process_name = image.split('\\')[-1] if '\\' in image else image
+                    command_lines = [e.command_line for e in events if e.command_line]
+                    users = [e.user for e in events if e.user]
 
-                    # 获取最常见的命令行
-                    most_common_cmd = max(command_lines, key=lambda x: sum(1 for e in events if e.get('command_line') == x)) if command_lines else ''
-
-                    # 提取进程名称
-                    process_name = process.split('\\')[-1] if '\\' in process else process
-
-                    alert = EDRAlert(
+                    alert = SysmonAlert(
+                        severity='medium' if any(keyword in image.lower() for keyword in ['powershell', 'cmd']) else 'low',
                         alert_type=f'Process Creation: {process_name}',
-                        severity='medium' if any(keyword in process.lower() for keyword in ['powershell', 'cmd']) else 'low',
-                        detection_time=sysmon_result.get('timestamp'),
-                        process_name=process.split('\\')[-1] if '\\' in process else process,
-                        command_line=most_common_cmd,
-                        file_path=process,
-                        detect_reason='; '.join(detect_reason_parts),
-                        source='sysmon'
+                        detection_time=sysmon_result.get('timestamp', ''),
+                        event_count=len(events),
+                        event_ids=['1'],
+                        processes_involved=[process_name],
+                        primary_process=image,
+                        command_lines=command_lines,
+                        description=f'检测到进程 {process_name} 创建了 {len(events)} 次',
+                        detection_reason=f'进程 {image} 被创建 {len(events)} 次，命令行: {"; ".join(command_lines[:3])}',
+                        related_events=events
                     )
                     alerts.append(alert)
 
-            # 基于网络连接创建告警（使用详细信息）
-            if network_events:
-                unique_connections = {}
-                processes_involved = set()
-                all_connections = []
+            # 创建文件操作告警
+            file_create_events = events_by_type.get('File Create', [])
+            if file_create_events:
+                files_created = [e.target_filename for e in file_create_events if e.target_filename]
+                processes_involved = list(set([e.image.split('\\')[-1] if e.image and '\\' in e.image else e.image for e in file_create_events if e.image]))
 
-                for event in network_events:
-                    src_ip = event.get('source_ip', '')
-                    dest_ip = event.get('destination_ip', '')
-                    dest_port = event.get('destination_port', '')
-                    src_port = event.get('source_port', '')
-                    process = event.get('image', '')
-                    protocol = event.get('protocol', '')
-
-                    # 记录完整连接信息
-                    connection_info = {
-                        'source_ip': src_ip,
-                        'source_port': src_port,
-                        'destination_ip': dest_ip,
-                        'destination_port': dest_port,
-                        'protocol': protocol,
-                        'process': process,
-                        'timestamp': event.get('timestamp', '')
-                    }
-                    all_connections.append(connection_info)
-
-                    key = f"{src_ip}:{src_port} -> {dest_ip}:{dest_port}"
-                    if key not in unique_connections:
-                        unique_connections[key] = []
-                    unique_connections[key].append(event)
-
-                    if process:
-                        processes_involved.add(process.split('\\')[-1] if '\\' in process else process)
-
-                detect_reason_parts = [f'检测到 {len(network_events)} 个网络连接事件']
-                detect_reason_parts.append(f'涉及 {len(unique_connections)} 个不同连接')
-                detect_reason_parts.append(f'涉及进程: {", ".join(list(processes_involved))}')
-
-                # 获取第一个网络事件的详细信息
-                sample_net_event = network_events[0] if network_events else {}
-                alert = EDRAlert(
-                    alert_type='Network Activity (Detailed)',
+                alert = SysmonAlert(
                     severity='medium',
-                    detection_time=sysmon_result.get('timestamp'),
-                    source_ip=sample_net_event.get('source_ip', ''),
-                    destination_ip=sample_net_event.get('destination_ip', ''),
-                    process_name=sample_net_event.get('image', '').split('\\')[-1] if sample_net_event.get('image') else '',
-                    network_connections=all_connections,  # 使用数组存储所有网络连接
-                    detect_reason='; '.join(detect_reason_parts),
-                    source='sysmon'
+                    alert_type='File Creation Activity',
+                    detection_time=sysmon_result.get('timestamp', ''),
+                    event_count=len(file_create_events),
+                    event_ids=['11'],
+                    processes_involved=processes_involved,
+                    files_created=files_created,
+                    description=f'检测到 {len(file_create_events)} 个文件创建事件',
+                    detection_reason=f'创建了 {len(files_created)} 个文件，涉及进程: {", ".join(processes_involved[:5])}',
+                    related_events=file_create_events
                 )
                 alerts.append(alert)
 
-            # 基于文件操作创建告警（使用详细信息）
-            if file_events:
-                file_creates = [e for e in file_events if e.get('event_type') == 'File Create']
-                file_deletes = [e for e in file_events if e.get('event_type') == 'File Delete']
+            file_delete_events = events_by_type.get('File Delete', [])
+            if file_delete_events:
+                files_deleted = [e.target_filename for e in file_delete_events if e.target_filename]
+                processes_involved = list(set([e.image.split('\\')[-1] if e.image and '\\' in e.image else e.image for e in file_delete_events if e.image]))
 
-                if file_creates:
-                    # 收集所有创建的文件信息
-                    created_files = []
-                    processes_involved = set()
-                    file_extensions = set()
-
-                    for event in file_creates:
-                        file_path = event.get('target_filename', '')
-                        process = event.get('image', '')
-                        created_files.append({
-                            'file_path': file_path,
-                            'process': process,
-                            'timestamp': event.get('timestamp', ''),
-                            'process_id': event.get('process_id', '')
-                        })
-
-                        if process:
-                            processes_involved.add(process.split('\\')[-1] if '\\' in process else process)
-
-                        if file_path and '.' in file_path:
-                            ext = file_path.split('.')[-1].lower()
-                            file_extensions.add(ext)
-
-                    # 构建完整的文件路径列表
-                    all_file_paths = [f['file_path'] for f in created_files if f['file_path']]
-                    detect_reason_parts = [f'检测到 {len(file_creates)} 个文件创建事件']
-                    detect_reason_parts.append(f'涉及进程: {", ".join(list(processes_involved))}')
-                    detect_reason_parts.append(f'文件类型: {", ".join(list(file_extensions))}')
-
-                    alert = EDRAlert(
-                        alert_type='File Creation Activity (Detailed)',
-                        severity='medium',
-                        detection_time=sysmon_result.get('timestamp'),
-                        file_path=created_files[0]['file_path'] if created_files else '',
-                        file_paths=all_file_paths,  # 使用数组存储所有文件路径
-                        process_name=list(processes_involved)[0] if processes_involved else '',
-                        detect_reason='; '.join(detect_reason_parts),
-                        source='sysmon'
-                    )
-                    alerts.append(alert)
-
-                if file_deletes:
-                    # 收集所有删除的文件信息
-                    deleted_files = []
-                    processes_involved = set()
-                    file_extensions = set()
-
-                    for event in file_deletes:
-                        file_path = event.get('target_filename', '')
-                        process = event.get('image', '')
-                        deleted_files.append({
-                            'file_path': file_path,
-                            'process': process,
-                            'timestamp': event.get('timestamp', ''),
-                            'process_id': event.get('process_id', '')
-                        })
-
-                        if process:
-                            processes_involved.add(process.split('\\')[-1] if '\\' in process else process)
-
-                        if file_path and '.' in file_path:
-                            ext = file_path.split('.')[-1].lower()
-                            file_extensions.add(ext)
-
-                    # 构建完整的文件路径列表
-                    all_file_paths = [f['file_path'] for f in deleted_files if f['file_path']]
-                    detect_reason_parts = [f'检测到 {len(file_deletes)} 个文件删除事件']
-                    detect_reason_parts.append(f'涉及进程: {", ".join(list(processes_involved))}')
-                    detect_reason_parts.append(f'文件类型: {", ".join(list(file_extensions))}')
-
-                    alert = EDRAlert(
-                        alert_type='File Deletion Activity (Detailed)',
-                        severity='medium',
-                        detection_time=sysmon_result.get('timestamp'),
-                        file_path=deleted_files[0]['file_path'] if deleted_files else '',
-                        file_paths=all_file_paths,  # 使用数组存储所有文件路径
-                        process_name=list(processes_involved)[0] if processes_involved else '',
-                        detect_reason='; '.join(detect_reason_parts),
-                        source='sysmon'
-                    )
-                    alerts.append(alert)
-
-            # 基于网络连接创建告警（旧格式兼容）
-            network_connections = sysmon_analysis.get('network_connections', [])
-            if network_connections:
-                # 提取连接详情
-                connection_details = []
-                for conn in network_connections:
-                    if isinstance(conn, dict):
-                        details = conn.get('details', '')
-                        timestamp = conn.get('timestamp', '')
-                        if details:
-                            connection_details.append(f"{timestamp}: {details}")
-                    else:
-                        connection_details.append(str(conn))
-
-                detect_reason_parts = [f'检测到 {len(network_connections)} 个网络连接']
-                if connection_details:
-                    detect_reason_parts.append(f'连接详情: {"; ".join(connection_details[:10])}')  # 限制显示前10个
-
-                alert = EDRAlert(
-                    alert_type='Network Activity',
+                alert = SysmonAlert(
                     severity='medium',
-                    detection_time=sysmon_result.get('timestamp'),
-                    detect_reason='; '.join(detect_reason_parts),
-                    source='sysmon'
+                    alert_type='File Deletion Activity',
+                    detection_time=sysmon_result.get('timestamp', ''),
+                    event_count=len(file_delete_events),
+                    event_ids=['23'],
+                    processes_involved=processes_involved,
+                    files_deleted=files_deleted,
+                    description=f'检测到 {len(file_delete_events)} 个文件删除事件',
+                    detection_reason=f'删除了 {len(files_deleted)} 个文件，涉及进程: {", ".join(processes_involved[:5])}',
+                    related_events=file_delete_events
+                )
+                alerts.append(alert)
+
+            # 创建网络连接告警
+            network_events = events_by_type.get('Network Connection', [])
+            if network_events:
+                connections = []
+                processes_involved = set()
+                remote_addresses = set()
+
+                for event in network_events:
+                    connection_info = {
+                        'source_ip': event.source_ip or '',
+                        'source_port': event.source_port or '',
+                        'destination_ip': event.destination_ip or '',
+                        'destination_port': event.destination_port or '',
+                        'protocol': event.protocol or '',
+                        'process': event.image or '',
+                        'timestamp': event.timestamp or ''
+                    }
+                    connections.append(connection_info)
+
+                    if event.image:
+                        process_name = event.image.split('\\')[-1] if '\\' in event.image else event.image
+                        processes_involved.add(process_name)
+
+                    if event.destination_ip:
+                        remote_addresses.add(event.destination_ip)
+
+                alert = SysmonAlert(
+                    severity='medium',
+                    alert_type='Network Connection Activity',
+                    detection_time=sysmon_result.get('timestamp', ''),
+                    event_count=len(network_events),
+                    event_ids=['3'],
+                    processes_involved=list(processes_involved),
+                    network_connections=connections,
+                    remote_addresses=list(remote_addresses),
+                    description=f'检测到 {len(network_events)} 个网络连接事件',
+                    detection_reason=f'建立了 {len(connections)} 个网络连接，涉及进程: {", ".join(list(processes_involved)[:5])}',
+                    related_events=network_events
+                )
+                alerts.append(alert)
+
+            # 创建DNS查询告警
+            dns_events = events_by_type.get('DNS query', [])
+            if dns_events:
+                dns_queries = []
+                processes_involved = set()
+
+                for event in dns_events:
+                    dns_info = {
+                        'query_name': event.query_name or '',
+                        'query_results': event.query_results or '',
+                        'process': event.image or '',
+                        'timestamp': event.timestamp or ''
+                    }
+                    dns_queries.append(dns_info)
+
+                    if event.image:
+                        process_name = event.image.split('\\')[-1] if '\\' in event.image else event.image
+                        processes_involved.add(process_name)
+
+                alert = SysmonAlert(
+                    severity='medium',
+                    alert_type='DNS Query Activity',
+                    detection_time=sysmon_result.get('timestamp', ''),
+                    event_count=len(dns_events),
+                    event_ids=['22'],
+                    processes_involved=list(processes_involved),
+                    dns_queries=dns_queries,
+                    description=f'检测到 {len(dns_events)} 个DNS查询事件',
+                    detection_reason=f'执行了 {len(dns_queries)} 个DNS查询，涉及进程: {", ".join(list(processes_involved)[:5])}',
+                    related_events=dns_events
                 )
                 alerts.append(alert)
 
             # 如果没有生成任何告警，创建一个基础告警
             if not alerts:
-                alert = EDRAlert(
-                    alert_type='Sysmon Analysis Complete',
+                alert = SysmonAlert(
                     severity='info',
-                    detection_time=sysmon_result.get('timestamp'),
-                    detect_reason=f'Sysmon分析完成，收集了 {sysmon_result.get("raw_events_count", 0)} 个事件',
-                    source='sysmon'
+                    alert_type='Sysmon Analysis Complete',
+                    detection_time=sysmon_result.get('timestamp', ''),
+                    event_count=len(sysmon_events),
+                    description='Sysmon分析完成',
+                    detection_reason=f'Sysmon分析完成，收集了 {len(sysmon_events)} 个事件',
+                    related_events=sysmon_events
                 )
                 alerts.append(alert)
 
         except Exception as e:
             logger.error(f"转换Sysmon结果为告警时出错: {str(e)}")
             # 创建错误告警
-            alert = EDRAlert(
+            alert = SysmonAlert(
+                severity='high',
                 alert_type='Sysmon Conversion Error',
-                severity='error',
-                detection_time=sysmon_result.get('timestamp'),
-                detect_reason=f'转换Sysmon分析结果时出错: {str(e)}',
-                source='sysmon'
+                detection_time=sysmon_result.get('timestamp', ''),
+                description='转换Sysmon分析结果时出错',
+                detection_reason=f'转换Sysmon分析结果时出错: {str(e)}'
             )
             alerts.append(alert)
 
         return alerts
+
+    def _convert_sysmon_events_to_objects(self, detailed_events: list) -> List[SysmonEvent]:
+        """
+        将详细事件转换为SysmonEvent对象
+
+        Args:
+            detailed_events: 详细事件列表
+
+        Returns:
+            List[SysmonEvent]: SysmonEvent对象列表
+        """
+        sysmon_events = []
+
+        for event in detailed_events:
+            try:
+                sysmon_event = SysmonEvent(
+                    event_id=str(event.get('event_id', '')),
+                    event_name=event.get('event_type', ''),
+                    timestamp=event.get('timestamp', ''),
+                    computer_name=event.get('computer_name', ''),
+
+                    # 进程相关信息
+                    process_id=event.get('process_id', ''),
+                    process_name=event.get('process_name', ''),
+                    image=event.get('image', ''),
+                    command_line=event.get('command_line', ''),
+                    parent_process_id=event.get('parent_process_id', ''),
+                    parent_image=event.get('parent_image', ''),
+                    user=event.get('user', ''),
+
+                    # 文件相关信息
+                    target_filename=event.get('target_filename', ''),
+                    creation_utc_time=event.get('creation_utc_time', ''),
+
+                    # 网络相关信息
+                    source_ip=event.get('source_ip', ''),
+                    source_port=event.get('source_port', ''),
+                    destination_ip=event.get('destination_ip', ''),
+                    destination_port=event.get('destination_port', ''),
+                    protocol=event.get('protocol', ''),
+
+                    # DNS相关信息
+                    query_name=event.get('query_name', ''),
+                    query_results=event.get('query_results', ''),
+
+                    # 进程访问相关信息
+                    source_process_id=event.get('source_process_id', ''),
+                    target_process_id=event.get('target_process_id', ''),
+                    granted_access=event.get('granted_access', ''),
+
+                    # 镜像加载相关信息
+                    image_loaded=event.get('image_loaded', ''),
+                    signature=event.get('signature', ''),
+                    signed=event.get('signed', ''),
+
+                    # 原始数据
+                    raw_data=event
+                )
+                sysmon_events.append(sysmon_event)
+            except Exception as e:
+                logger.warning(f"转换Sysmon事件时出错: {e}, 事件: {event}")
+                continue
+
+        return sysmon_events
 
     async def get_queue_status(self) -> Dict[str, int]:
         """
