@@ -74,7 +74,6 @@ class McafeeEDRClient(EDRClient):
         for item in threat_data:
             try:
                 alert = EDRAlert(
-                    alert_id=str(item.get("ThreatID", f"quarantine_{hash(str(item))}")),
                     severity='Critical',
                     alert_type=item.get('detection_name'),
                     process_name=item.get('initiator_name'),

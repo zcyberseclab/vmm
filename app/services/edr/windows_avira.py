@@ -102,7 +102,6 @@ class AviraEDRClient(EDRClient):
                                 parse_report_out["utc"]
                             ).strftime("%Y-%m-%d %H:%M:%S")
                             alert = EDRAlert(
-                                alert_id=str(f"quarantine_{alert_hash}"),
                                 severity="Critical",
                                 alert_type=parse_report_out["malware"],
                                 detection_time=dt,

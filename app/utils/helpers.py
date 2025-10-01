@@ -4,8 +4,9 @@
 import os
 import hashlib
 import mimetypes
-from typing import Optional, Dict, Any
-from datetime import datetime, timedelta
+from typing import Optional, Dict, Any, Union
+from datetime import datetime, timedelta, timezone
+import pytz
 
 
 def calculate_file_hash(file_path: str, algorithm: str = "sha256") -> str:
@@ -183,7 +184,7 @@ def create_error_response(message: str, code: str = "UNKNOWN_ERROR") -> Dict[str
         "error": True,
         "code": code,
         "message": message,
-        "timestamp": datetime.utcnow().isoformat()
+        "timestamp": datetime.now(timezone.utc).isoformat()
     }
 
 
@@ -201,7 +202,7 @@ def create_success_response(data: Any = None, message: str = "操作成功") -> 
     response = {
         "error": False,
         "message": message,
-        "timestamp": datetime.utcnow().isoformat()
+        "timestamp": datetime.now(timezone.utc).isoformat()
     }
     
     if data is not None:
@@ -248,11 +249,11 @@ def parse_timeout(timeout_str: str, default: int = 300) -> int:
 def get_vm_config_by_name(vm_name: str, vm_configs: list) -> Optional[Dict[str, Any]]:
     """
     根据名称获取虚拟机配置
-    
+
     Args:
         vm_name: 虚拟机名称
         vm_configs: 虚拟机配置列表
-        
+
     Returns:
         Optional[Dict[str, Any]]: 虚拟机配置
     """
@@ -260,3 +261,125 @@ def get_vm_config_by_name(vm_name: str, vm_configs: list) -> Optional[Dict[str, 
         if config.name == vm_name:
             return config
     return None
+
+
+def utc_to_local_time(utc_time_str: str, local_timezone: str = None) -> str:
+    """
+    将UTC时间转换为本地时间
+
+    Args:
+        utc_time_str: UTC时间字符串，支持多种格式
+        local_timezone: 本地时区，默认为系统时区
+
+    Returns:
+        str: 本地时间字符串
+    """
+    if not utc_time_str:
+        return ""
+
+    try:
+        # 支持的时间格式列表
+        time_formats = [
+            "%Y-%m-%dT%H:%M:%S.%fZ",      # 2025-10-01T12:00:00.123456Z
+            "%Y-%m-%dT%H:%M:%SZ",         # 2025-10-01T12:00:00Z
+            "%Y-%m-%dT%H:%M:%S.%f",       # 2025-10-01T12:00:00.123456
+            "%Y-%m-%dT%H:%M:%S",          # 2025-10-01T12:00:00
+            "%Y-%m-%d %H:%M:%S.%f",       # 2025-10-01 12:00:00.123456
+            "%Y-%m-%d %H:%M:%S",          # 2025-10-01 12:00:00
+            "%Y/%m/%d %H:%M:%S",          # 2025/10/01 12:00:00
+            "%d/%m/%Y %H:%M:%S",          # 01/10/2025 12:00:00
+        ]
+
+        # 尝试解析UTC时间
+        utc_dt = None
+        for fmt in time_formats:
+            try:
+                utc_dt = datetime.strptime(utc_time_str.strip(), fmt)
+                break
+            except ValueError:
+                continue
+
+        if utc_dt is None:
+            # 如果所有格式都失败，返回原始字符串
+            return utc_time_str
+
+        # 设置为UTC时区
+        if utc_dt.tzinfo is None:
+            utc_dt = utc_dt.replace(tzinfo=pytz.UTC)
+
+        # 确定目标时区
+        if local_timezone:
+            try:
+                target_tz = pytz.timezone(local_timezone)
+            except pytz.exceptions.UnknownTimeZoneError:
+                # 如果时区无效，使用系统本地时区
+                target_tz = pytz.timezone('Asia/Shanghai')  # 默认使用中国时区
+        else:
+            # 使用系统本地时区（中国时区）
+            target_tz = pytz.timezone('Asia/Shanghai')
+
+        # 转换到本地时区
+        local_dt = utc_dt.astimezone(target_tz)
+
+        # 返回格式化的本地时间
+        return local_dt.strftime("%Y-%m-%d %H:%M:%S")
+
+    except Exception:
+        # 如果转换失败，返回原始字符串
+        return utc_time_str
+
+
+def format_timestamp_to_local(timestamp: Union[str, datetime], local_timezone: str = None) -> str:
+    """
+    格式化时间戳为本地时间字符串
+
+    Args:
+        timestamp: 时间戳（字符串或datetime对象）
+        local_timezone: 本地时区，默认为中国时区
+
+    Returns:
+        str: 格式化的本地时间字符串
+    """
+    if not timestamp:
+        return ""
+
+    try:
+        if isinstance(timestamp, str):
+            return utc_to_local_time(timestamp, local_timezone)
+        elif isinstance(timestamp, datetime):
+            # 如果是datetime对象，先转换为ISO格式字符串
+            if timestamp.tzinfo is None:
+                # 假设是UTC时间
+                timestamp_str = timestamp.isoformat() + "Z"
+            else:
+                timestamp_str = timestamp.isoformat()
+            return utc_to_local_time(timestamp_str, local_timezone)
+        else:
+            return str(timestamp)
+    except Exception:
+        return str(timestamp)
+
+
+def get_current_local_time(local_timezone: str = None) -> str:
+    """
+    获取当前本地时间
+
+    Args:
+        local_timezone: 本地时区，默认为中国时区
+
+    Returns:
+        str: 当前本地时间字符串
+    """
+    try:
+        if local_timezone:
+            try:
+                target_tz = pytz.timezone(local_timezone)
+            except pytz.exceptions.UnknownTimeZoneError:
+                target_tz = pytz.timezone('Asia/Shanghai')
+        else:
+            target_tz = pytz.timezone('Asia/Shanghai')
+
+        local_dt = datetime.now(target_tz)
+        return local_dt.strftime("%Y-%m-%d %H:%M:%S")
+    except Exception:
+        return datetime.now().strftime("%Y-%m-%d %H:%M:%S")

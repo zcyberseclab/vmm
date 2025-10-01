@@ -6,7 +6,7 @@ from datetime import datetime, timedelta
 from typing import Dict, List, Optional
 from loguru import logger
 
-from app.models.task import AnalysisTask, TaskStatus, VMTaskResult, VMTaskStatus, EDRAlert, BehaviorAnalysisResult, SysmonAlert, SysmonEvent
+from app.models.task import AnalysisTask, TaskStatus, VMTaskResult, VMTaskStatus, EDRAlert, BehaviorAnalysisResult, SysmonEvent, BehaviorStatistics
 from app.core.config import get_settings
 
 
@@ -311,23 +311,21 @@ class SimpleTaskManager:
                 config_type=self.settings.sysmon_analysis.config_type
             )
 
-            # 将Sysmon分析结果转换为SysmonAlert格式
-            alerts = self._convert_sysmon_to_alerts(analysis_result)
-            behavior_result.alerts = alerts
-            behavior_result.events_collected = analysis_result.get('raw_events_count', 0)
-
-            # 存储原始事件
+            # 将Sysmon分析结果转换为Event格式（保留原始数据）
             detailed_events = analysis_result.get('sysmon_analysis', {}).get('detailed_events', [])
-            raw_events = self._convert_sysmon_events_to_objects(detailed_events)
-            behavior_result.raw_events = raw_events
+            events = self._convert_to_events(detailed_events)
+            behavior_result.events = events
+
+            # 生成统计信息
+            statistics = self._generate_behavior_statistics(detailed_events, analysis_result)
+            behavior_result.statistics = statistics
 
             # 更新状态
             end_time = datetime.utcnow()
             behavior_result.status = VMTaskStatus.COMPLETED
             behavior_result.end_time = end_time
-            behavior_result.analysis_duration = (end_time - start_time).total_seconds()
 
-            logger.info(f"✅ Sysmon分析完成: {task.file_name}, 生成 {len(alerts)} 个告警")
+            logger.info(f"✅ Sysmon分析完成: {task.file_name}, 收集 {len(events)} 个事件")
 
         except Exception as e:
             logger.error(f"❌ Sysmon分析失败: {task.file_name} - {str(e)}")
@@ -337,207 +335,9 @@ class SimpleTaskManager:
                 task.behavior_results.error_message = str(e)
             raise
 
-    def _convert_sysmon_to_alerts(self, sysmon_result: dict) -> list:
+    def _convert_to_events(self, detailed_events: list) -> List[SysmonEvent]:
         """
-        将Sysmon分析结果转换为SysmonAlert格式
-
-        Args:
-            sysmon_result: Sysmon分析结果
-
-        Returns:
-            list: SysmonAlert列表
-        """
-        alerts = []
-
-        try:
-            sysmon_analysis = sysmon_result.get('sysmon_analysis', {})
-            detailed_events = sysmon_analysis.get('detailed_events', [])
-
-            # 转换详细事件为SysmonEvent对象
-            sysmon_events = self._convert_sysmon_events_to_objects(detailed_events)
-
-            # 按事件类型分组
-            events_by_type = {}
-            for event in sysmon_events:
-                event_type = event.event_name
-                if event_type not in events_by_type:
-                    events_by_type[event_type] = []
-                events_by_type[event_type].append(event)
-
-            # 创建进程创建告警
-            if 'Process Creation' in events_by_type:
-                process_events = events_by_type['Process Creation']
-                processes_by_image = {}
-
-                for event in process_events:
-                    image = event.image or 'Unknown'
-                    if image not in processes_by_image:
-                        processes_by_image[image] = []
-                    processes_by_image[image].append(event)
-
-                for image, events in processes_by_image.items():
-                    process_name = image.split('\\')[-1] if '\\' in image else image
-                    command_lines = [e.command_line for e in events if e.command_line]
-                    users = [e.user for e in events if e.user]
-
-                    alert = SysmonAlert(
-                        severity='medium' if any(keyword in image.lower() for keyword in ['powershell', 'cmd']) else 'low',
-                        alert_type=f'Process Creation: {process_name}',
-                        detection_time=sysmon_result.get('timestamp', ''),
-                        event_count=len(events),
-                        event_ids=['1'],
-                        processes_involved=[process_name],
-                        primary_process=image,
-                        command_lines=command_lines,
-                        description=f'检测到进程 {process_name} 创建了 {len(events)} 次',
-                        detection_reason=f'进程 {image} 被创建 {len(events)} 次，命令行: {"; ".join(command_lines[:3])}',
-                        related_events=events
-                    )
-                    alerts.append(alert)
-
-            # 创建文件操作告警
-            file_create_events = events_by_type.get('File Create', [])
-            if file_create_events:
-                files_created = [e.target_filename for e in file_create_events if e.target_filename]
-                processes_involved = list(set([e.image.split('\\')[-1] if e.image and '\\' in e.image else e.image for e in file_create_events if e.image]))
-
-                alert = SysmonAlert(
-                    severity='medium',
-                    alert_type='File Creation Activity',
-                    detection_time=sysmon_result.get('timestamp', ''),
-                    event_count=len(file_create_events),
-                    event_ids=['11'],
-                    processes_involved=processes_involved,
-                    files_created=files_created,
-                    description=f'检测到 {len(file_create_events)} 个文件创建事件',
-                    detection_reason=f'创建了 {len(files_created)} 个文件，涉及进程: {", ".join(processes_involved[:5])}',
-                    related_events=file_create_events
-                )
-                alerts.append(alert)
-
-            file_delete_events = events_by_type.get('File Delete', [])
-            if file_delete_events:
-                files_deleted = [e.target_filename for e in file_delete_events if e.target_filename]
-                processes_involved = list(set([e.image.split('\\')[-1] if e.image and '\\' in e.image else e.image for e in file_delete_events if e.image]))
-
-                alert = SysmonAlert(
-                    severity='medium',
-                    alert_type='File Deletion Activity',
-                    detection_time=sysmon_result.get('timestamp', ''),
-                    event_count=len(file_delete_events),
-                    event_ids=['23'],
-                    processes_involved=processes_involved,
-                    files_deleted=files_deleted,
-                    description=f'检测到 {len(file_delete_events)} 个文件删除事件',
-                    detection_reason=f'删除了 {len(files_deleted)} 个文件，涉及进程: {", ".join(processes_involved[:5])}',
-                    related_events=file_delete_events
-                )
-                alerts.append(alert)
-
-            # 创建网络连接告警
-            network_events = events_by_type.get('Network Connection', [])
-            if network_events:
-                connections = []
-                processes_involved = set()
-                remote_addresses = set()
-
-                for event in network_events:
-                    connection_info = {
-                        'source_ip': event.source_ip or '',
-                        'source_port': event.source_port or '',
-                        'destination_ip': event.destination_ip or '',
-                        'destination_port': event.destination_port or '',
-                        'protocol': event.protocol or '',
-                        'process': event.image or '',
-                        'timestamp': event.timestamp or ''
-                    }
-                    connections.append(connection_info)
-
-                    if event.image:
-                        process_name = event.image.split('\\')[-1] if '\\' in event.image else event.image
-                        processes_involved.add(process_name)
-
-                    if event.destination_ip:
-                        remote_addresses.add(event.destination_ip)
-
-                alert = SysmonAlert(
-                    severity='medium',
-                    alert_type='Network Connection Activity',
-                    detection_time=sysmon_result.get('timestamp', ''),
-                    event_count=len(network_events),
-                    event_ids=['3'],
-                    processes_involved=list(processes_involved),
-                    network_connections=connections,
-                    remote_addresses=list(remote_addresses),
-                    description=f'检测到 {len(network_events)} 个网络连接事件',
-                    detection_reason=f'建立了 {len(connections)} 个网络连接，涉及进程: {", ".join(list(processes_involved)[:5])}',
-                    related_events=network_events
-                )
-                alerts.append(alert)
-
-            # 创建DNS查询告警
-            dns_events = events_by_type.get('DNS query', [])
-            if dns_events:
-                dns_queries = []
-                processes_involved = set()
-
-                for event in dns_events:
-                    dns_info = {
-                        'query_name': event.query_name or '',
-                        'query_results': event.query_results or '',
-                        'process': event.image or '',
-                        'timestamp': event.timestamp or ''
-                    }
-                    dns_queries.append(dns_info)
-
-                    if event.image:
-                        process_name = event.image.split('\\')[-1] if '\\' in event.image else event.image
-                        processes_involved.add(process_name)
-
-                alert = SysmonAlert(
-                    severity='medium',
-                    alert_type='DNS Query Activity',
-                    detection_time=sysmon_result.get('timestamp', ''),
-                    event_count=len(dns_events),
-                    event_ids=['22'],
-                    processes_involved=list(processes_involved),
-                    dns_queries=dns_queries,
-                    description=f'检测到 {len(dns_events)} 个DNS查询事件',
-                    detection_reason=f'执行了 {len(dns_queries)} 个DNS查询，涉及进程: {", ".join(list(processes_involved)[:5])}',
-                    related_events=dns_events
-                )
-                alerts.append(alert)
-
-            # 如果没有生成任何告警，创建一个基础告警
-            if not alerts:
-                alert = SysmonAlert(
-                    severity='info',
-                    alert_type='Sysmon Analysis Complete',
-                    detection_time=sysmon_result.get('timestamp', ''),
-                    event_count=len(sysmon_events),
-                    description='Sysmon分析完成',
-                    detection_reason=f'Sysmon分析完成，收集了 {len(sysmon_events)} 个事件',
-                    related_events=sysmon_events
-                )
-                alerts.append(alert)
-
-        except Exception as e:
-            logger.error(f"转换Sysmon结果为告警时出错: {str(e)}")
-            # 创建错误告警
-            alert = SysmonAlert(
-                severity='high',
-                alert_type='Sysmon Conversion Error',
-                detection_time=sysmon_result.get('timestamp', ''),
-                description='转换Sysmon分析结果时出错',
-                detection_reason=f'转换Sysmon分析结果时出错: {str(e)}'
-            )
-            alerts.append(alert)
-
-        return alerts
-
-    def _convert_sysmon_events_to_objects(self, detailed_events: list) -> List[SysmonEvent]:
-        """
-        将详细事件转换为SysmonEvent对象
+        将详细事件转换为SysmonEvent对象（扁平化结构，提取关键字段）
 
         Args:
             detailed_events: 详细事件列表
@@ -545,14 +345,21 @@ class SimpleTaskManager:
         Returns:
             List[SysmonEvent]: SysmonEvent对象列表
         """
-        sysmon_events = []
+        events = []
 
         for event in detailed_events:
             try:
-                sysmon_event = SysmonEvent(
+                # 提取parsed_fields中的关键信息
+                parsed_fields = event.get('parsed_fields', {})
+
+                # 从UtcTime字段获取格式化的时间戳
+                utc_time = parsed_fields.get('UtcTime', event.get('timestamp', ''))
+
+                # 创建简化的SysmonEvent对象
+                event_obj = SysmonEvent(
                     event_id=str(event.get('event_id', '')),
                     event_name=event.get('event_type', ''),
-                    timestamp=event.get('timestamp', ''),
+                    timestamp=utc_time,
                     computer_name=event.get('computer_name', ''),
 
                     # 进程相关信息
@@ -589,15 +396,94 @@ class SimpleTaskManager:
                     signature=event.get('signature', ''),
                     signed=event.get('signed', ''),
 
-                    # 原始数据
-                    raw_data=event
+                    # 新增字段 - 从parsed_fields提取
+                    event_type=event.get('event_type', ''),
+                    source_process_guid=parsed_fields.get('SourceProcessGUID', ''),
+                    source_image=parsed_fields.get('SourceImage', event.get('source_image', '')),
+                    target_process_guid=parsed_fields.get('TargetProcessGUID', ''),
+                    target_image=parsed_fields.get('TargetImage', event.get('target_image', '')),
+                    call_trace=parsed_fields.get('CallTrace', event.get('call_trace', '')),
+                    source_user=parsed_fields.get('SourceUser', ''),
+                    target_user=parsed_fields.get('TargetUser', '')
                 )
-                sysmon_events.append(sysmon_event)
+                events.append(event_obj)
             except Exception as e:
-                logger.warning(f"转换Sysmon事件时出错: {e}, 事件: {event}")
+                logger.warning(f"转换SysmonEvent时出错: {e}, 事件: {event}")
                 continue
 
-        return sysmon_events
+        return events
+
+    def _generate_behavior_statistics(self, detailed_events: list, analysis_result: dict) -> BehaviorStatistics:
+        """
+        生成行为分析统计信息
+
+        Args:
+            detailed_events: 详细事件列表
+            analysis_result: 分析结果
+
+        Returns:
+            BehaviorStatistics: 统计信息对象
+        """
+        statistics = BehaviorStatistics()
+
+        # 基本统计
+        statistics.total_events = len(detailed_events)
+
+        # 事件类型统计
+        event_types = {}
+        process_images = set()
+        destinations = set()
+        timestamps = []
+
+        for event in detailed_events:
+            event_id = str(event.get('event_id', ''))
+            timestamp = event.get('timestamp', '')
+
+            # 事件类型统计
+            if event_id:
+                event_types[event_id] = event_types.get(event_id, 0) + 1
+
+            # 收集时间戳
+            if timestamp:
+                timestamps.append(timestamp)
+
+            # 根据事件类型进行统计
+            if event_id == '1':  # Process Creation
+                statistics.process_creations += 1
+                image = event.get('image', '')
+                if image:
+                    process_images.add(image)
+            elif event_id == '11':  # File Create
+                statistics.file_creations += 1
+            elif event_id == '23':  # File Delete
+                statistics.file_deletions += 1
+            elif event_id == '3':  # Network Connection
+                statistics.network_connections += 1
+                dest_ip = event.get('destination_ip', '')
+                if dest_ip:
+                    destinations.add(dest_ip)
+            elif event_id == '22':  # DNS Query
+                statistics.dns_queries += 1
+            elif event_id == '10':  # Process Access
+                statistics.process_accesses += 1
+            elif event_id == '7':  # Image Load
+                statistics.image_loads += 1
+
+        # 设置统计结果
+        statistics.event_types = event_types
+        statistics.unique_processes = len(process_images)
+        statistics.unique_destinations = len(destinations)
+
+        # 时间范围
+        if timestamps:
+            timestamps.sort()
+            statistics.first_event_time = timestamps[0]
+            statistics.last_event_time = timestamps[-1]
+
+        # 分析持续时间
+        statistics.analysis_duration = analysis_result.get('analysis_duration')
+
+        return statistics
 
     async def get_queue_status(self) -> Dict[str, int]:
         """

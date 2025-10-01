@@ -37,13 +37,10 @@ class EDRAlert(BaseModel):
 
     process_name: Optional[str] = None
     command_line: Optional[str] = None
-    source_ip: Optional[str] = None
-    destination_ip: Optional[str] = None
 
     # EDR 特定字段
     detect_reason: Optional[str] = None  # 检测方式/原因
     detection_time: Optional[str] = None
-    event_id: Optional[str] = None
     file_path: Optional[str] = None
     file_paths: Optional[List[str]] = Field(default_factory=list)  # 文件路径数组
     network_connections: Optional[List[dict]] = Field(default_factory=list)  # 网络连接数组
@@ -51,12 +48,12 @@ class EDRAlert(BaseModel):
 
 
 class SysmonEvent(BaseModel):
-    """Sysmon事件数据结构"""
+    """Sysmon事件数据结构 - 简化扁平结构"""
 
     # 基本事件信息
     event_id: str  # Sysmon事件ID (1, 3, 5, 7, 10, 11, 22, 23等)
-    event_name: str  # 事件名称 (Process Creation, Network Connection等)
-    timestamp: str  # 事件时间戳
+    event_name: Optional[str] = None  # 事件名称 (Process Creation, Network Connection等)
+    timestamp: Optional[str] = None  # 事件时间戳
     computer_name: Optional[str] = None  # 计算机名
 
     # 进程相关信息
@@ -93,54 +90,49 @@ class SysmonEvent(BaseModel):
     signature: Optional[str] = None  # 签名信息
     signed: Optional[str] = None  # 是否签名
 
-    # 原始事件数据
-    raw_data: Optional[Dict[str, Any]] = Field(default_factory=dict)  # 原始事件数据
+    # 新增字段 - 从parsed_fields提取的关键信息
+    event_type: Optional[str] = None  # 事件类型
+    source_process_guid: Optional[str] = None  # 源进程GUID
+    source_image: Optional[str] = None  # 源进程镜像路径
+    target_process_guid: Optional[str] = None  # 目标进程GUID
+    target_image: Optional[str] = None  # 目标进程镜像路径
+    call_trace: Optional[str] = None  # 调用跟踪
+    source_user: Optional[str] = None  # 源用户
+    target_user: Optional[str] = None  # 目标用户
 
 
-class SysmonAlert(BaseModel):
-    """Sysmon告警数据结构"""
+class BehaviorStatistics(BaseModel):
+    """行为分析统计信息"""
 
-    # 基本告警信息
-    alert_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
-    severity: str  # 严重程度: low, medium, high, critical
-    alert_type: str  # 告警类型
-    detection_time: str  # 检测时间
+    # 事件统计
+    total_events: int = 0  # 总事件数
+    event_types: Dict[str, int] = Field(default_factory=dict)  # 事件类型统计 {"1": 5, "3": 2}
 
-    # 事件统计信息
-    event_count: int = 0  # 相关事件数量
-    event_ids: List[str] = Field(default_factory=list)  # 涉及的事件ID列表
+    # 进程统计
+    process_creations: int = 0  # 进程创建数量
+    unique_processes: int = 0  # 唯一进程数量
 
-    # 进程信息
-    processes_involved: List[str] = Field(default_factory=list)  # 涉及的进程列表
-    primary_process: Optional[str] = None  # 主要进程
-    command_lines: List[str] = Field(default_factory=list)  # 命令行列表
+    # 文件统计
+    file_creations: int = 0  # 文件创建数量
+    file_deletions: int = 0  # 文件删除数量
+    file_modifications: int = 0  # 文件修改数量
 
-    # 文件操作信息
-    files_created: List[str] = Field(default_factory=list)  # 创建的文件列表
-    files_deleted: List[str] = Field(default_factory=list)  # 删除的文件列表
-    files_modified: List[str] = Field(default_factory=list)  # 修改的文件列表
-    file_types: List[str] = Field(default_factory=list)  # 文件类型列表
+    # 网络统计
+    network_connections: int = 0  # 网络连接数量
+    dns_queries: int = 0  # DNS查询数量
+    unique_destinations: int = 0  # 唯一目标地址数量
 
-    # 网络活动信息
-    network_connections: List[Dict[str, str]] = Field(default_factory=list)  # 网络连接列表
-    dns_queries: List[Dict[str, str]] = Field(default_factory=list)  # DNS查询列表
-    remote_addresses: List[str] = Field(default_factory=list)  # 远程地址列表
+    # 注册表统计
+    registry_operations: int = 0  # 注册表操作数量
 
-    # 系统活动信息
-    registry_operations: List[Dict[str, str]] = Field(default_factory=list)  # 注册表操作
-    process_accesses: List[Dict[str, str]] = Field(default_factory=list)  # 进程访问
-    image_loads: List[Dict[str, str]] = Field(default_factory=list)  # 镜像加载
+    # 其他统计
+    process_accesses: int = 0  # 进程访问数量
+    image_loads: int = 0  # 镜像加载数量
 
-    # 描述和原因
-    description: str  # 告警描述
-    detection_reason: str  # 检测原因
-
-    # 相关事件
-    related_events: List[SysmonEvent] = Field(default_factory=list)  # 相关的Sysmon事件
-
-    # 元数据
-    source: str = "sysmon"
-    analysis_engine: str = "sysmon"
+    # 时间范围
+    first_event_time: Optional[str] = None  # 第一个事件时间
+    last_event_time: Optional[str] = None  # 最后一个事件时间
+    analysis_duration: Optional[float] = None  # 分析持续时间（秒）
 
 
 class VMTaskResult(BaseModel):
@@ -160,10 +152,12 @@ class BehaviorAnalysisResult(BaseModel):
     start_time: datetime
     end_time: Optional[datetime] = None
     error_message: Optional[str] = None
-    alerts: List[SysmonAlert] = Field(default_factory=list)  # 使用SysmonAlert而不是EDRAlert
-    events_collected: int = 0
-    analysis_duration: Optional[float] = None
-    raw_events: List[SysmonEvent] = Field(default_factory=list)  # 原始Sysmon事件
+
+    # 使用SysmonEvent结构，保留原始数据
+    events: List[SysmonEvent] = Field(default_factory=list)  # 原始事件数据，不做分析
+
+    # 统计信息
+    statistics: BehaviorStatistics = Field(default_factory=BehaviorStatistics)  # 行为统计
     
 
 class AnalysisTask(BaseModel):

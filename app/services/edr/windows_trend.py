@@ -107,7 +107,6 @@ class TrendMicroEDRClient(EDRClient):
                             abs(hash(str(xml_json_result["RcaReport@attrib"])))
                         )
                         alert = EDRAlert(
-                            alert_id=str(f"quarantine_{alert_hash}"),
                             severity="Critical",
                             alert_type=VirusName,
                             detect_reason="Log",

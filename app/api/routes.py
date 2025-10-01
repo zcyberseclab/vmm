@@ -185,17 +185,28 @@ async def get_analysis_result(
         
         # 统计告警数量
         edr_alerts = sum(len(vm_result.alerts) for vm_result in task.edr_results)
-        behavior_alerts = len(task.behavior_results.alerts) if task.behavior_results else 0
-        total_alerts = edr_alerts + behavior_alerts
+        behavior_events = len(task.behavior_results.events) if task.behavior_results else 0
+        total_alerts = edr_alerts + behavior_events
 
-        # 生成摘要
+        # 生成摘要 - 包含Sysmon分析在VM统计中
+        edr_successful = len([r for r in task.edr_results if r.status == "completed"])
+        edr_failed = len([r for r in task.edr_results if r.status == "failed"])
+
+        # 统计Sysmon分析状态
+        sysmon_successful = 0
+        sysmon_failed = 0
+        if task.behavior_results:
+            if task.behavior_results.status == "completed":
+                sysmon_successful = 1
+            else:
+                sysmon_failed = 1
+
         summary = {
-            "total_vms": len(task.edr_results),
-            "successful_vms": len([r for r in task.edr_results if r.status == "completed"]),
-            "failed_vms": len([r for r in task.edr_results if r.status == "failed"]),
+            "total_vms": len(task.edr_results) + (1 if task.behavior_results else 0),
+            "successful_vms": edr_successful + sysmon_successful,
+            "failed_vms": edr_failed + sysmon_failed,
             "edr_alerts": edr_alerts,
-            "behavior_alerts": behavior_alerts,
-            "behavior_analysis_enabled": task.behavior_results is not None,
+            "behavior_events": behavior_events,
             "analysis_duration": (
                 (task.completed_at - task.started_at).total_seconds()
                 if task.started_at and task.completed_at else None

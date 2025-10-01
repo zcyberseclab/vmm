@@ -101,7 +101,6 @@ class KasperskyEDRClient(EDRClient):
                     severity_need_map = parts[10] if len(parts) > 10 else "None"
                 
                     alert = EDRAlert(
-                        alert_id=str(f"quarantine_{alert_hash}"),
                         severity=SEVERITY_MAP.get(severity_need_map, "None"),
                         alert_type=parts[8],
                         process_name=parts[14],

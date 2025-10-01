@@ -15,6 +15,7 @@ from loguru import logger
 from app.core.config import get_settings
 from app.services.vm_controller import create_vm_controller
 from app.services.vm_pool_manager import get_vm_pool_manager
+from app.utils.helpers import utc_to_local_time, format_timestamp_to_local, get_current_local_time
 from tools.sysmon.sysmon_manager import SysmonManager, SysmonConfigType, SysmonStatus
 
 
@@ -270,20 +271,40 @@ class SysmonAnalysisEngine:
     def _analyze_network_connection(self, event: Dict, analysis: Dict):
         """Analyze network connection event"""
         message = event.get("Message", "")
-        # Extract network information
-        connection_info = {"timestamp": event.get("TimeCreated"), "details": message}
+        # Extract network information with local time conversion
+        timestamp = event.get("TimeCreated", "")
+        local_timestamp = format_timestamp_to_local(timestamp) if timestamp else ""
+        connection_info = {
+            "timestamp": local_timestamp,
+            "utc_timestamp": timestamp,
+            "details": message
+        }
         analysis["network_connections"].append(connection_info)
     
     def _analyze_file_operation(self, event: Dict, analysis: Dict):
         """Analyze file operation event"""
         message = event.get("Message", "")
-        file_info = {"timestamp": event.get("TimeCreated"), "details": message}
+        # Convert timestamp to local time
+        timestamp = event.get("TimeCreated", "")
+        local_timestamp = format_timestamp_to_local(timestamp) if timestamp else ""
+        file_info = {
+            "timestamp": local_timestamp,
+            "utc_timestamp": timestamp,
+            "details": message
+        }
         analysis["file_operations"].append(file_info)
     
     def _analyze_registry_operation(self, event: Dict, analysis: Dict):
         """Analyze registry operation event"""
         message = event.get("Message", "")
-        registry_info = {"timestamp": event.get("TimeCreated"), "details": message}
+        # Convert timestamp to local time
+        timestamp = event.get("TimeCreated", "")
+        local_timestamp = format_timestamp_to_local(timestamp) if timestamp else ""
+        registry_info = {
+            "timestamp": local_timestamp,
+            "utc_timestamp": timestamp,
+            "details": message
+        }
         analysis["registry_operations"].append(registry_info)
 
     def _parse_detailed_event(self, event: Dict) -> Dict[str, Any]:
@@ -296,9 +317,13 @@ class SysmonAnalysisEngine:
             # 解析消息中的键值对
             parsed_fields = self._parse_sysmon_message(message)
 
+            # Convert timestamp to local time
+            local_timestamp = format_timestamp_to_local(time_created) if time_created else ""
+
             detailed_event = {
                 "event_id": event_id,
-                "timestamp": time_created,
+                "timestamp": local_timestamp,
+                "utc_timestamp": time_created,
                 "level": event.get("LevelDisplayName", ""),
                 "raw_message": message,
                 "parsed_fields": parsed_fields
@@ -360,13 +385,16 @@ class SysmonAnalysisEngine:
                     "call_trace": parsed_fields.get("CallTrace", "")
                 })
             elif event_id == 11:  # File Create
+                creation_utc_time = parsed_fields.get("CreationUtcTime", "")
+                creation_local_time = format_timestamp_to_local(creation_utc_time) if creation_utc_time else ""
                 detailed_event.update({
                     "event_type": "File Create",
                     "process_guid": parsed_fields.get("ProcessGuid", ""),
                     "process_id": parsed_fields.get("ProcessId", ""),
                     "image": parsed_fields.get("Image", ""),
                     "target_filename": parsed_fields.get("TargetFilename", ""),
-                    "creation_utc_time": parsed_fields.get("CreationUtcTime", "")
+                    "creation_utc_time": creation_utc_time,
+                    "creation_local_time": creation_local_time
                 })
             elif event_id == 22:  # DNS Query
                 detailed_event.update({
@@ -422,9 +450,14 @@ class SysmonAnalysisEngine:
         analysis: Dict[str, Any]
     ) -> Dict[str, Any]:
         """Generate final analysis report"""
+        # Generate timestamps in both UTC and local time
+        current_utc = datetime.now().isoformat()
+        current_local = get_current_local_time()
+
         report = {
             "analysis_id": analysis_id,
-            "timestamp": datetime.now().isoformat(),
+            "timestamp": current_local,
+            "utc_timestamp": current_utc,
             "sample_info": {
                 "hash": sample_hash,
                 "path": sample_path,
