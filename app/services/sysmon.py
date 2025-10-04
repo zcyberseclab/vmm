@@ -317,14 +317,16 @@ class SysmonAnalysisEngine:
             # 解析消息中的键值对
             parsed_fields = self._parse_sysmon_message(message)
 
+            # 优先使用parsed_fields中的UtcTime，如果没有则使用TimeCreated
+            utc_time = parsed_fields.get("UtcTime", time_created)
+
             # Convert timestamp to local time
-            local_timestamp = format_timestamp_to_local(time_created) if time_created else ""
+            local_timestamp = format_timestamp_to_local(utc_time) if utc_time else ""
 
             # 创建基础事件结构 - 扁平化，不保留raw_message和parsed_fields
             detailed_event = {
                 "event_id": event_id,
                 "timestamp": local_timestamp,
-                "utc_timestamp": time_created,
                 "level": event.get("LevelDisplayName", ""),
 
                 # 将parsed_fields中的所有信息直接提取到顶层

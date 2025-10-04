@@ -278,34 +278,45 @@ def utc_to_local_time(utc_time_str: str, local_timezone: str = None) -> str:
         return ""
 
     try:
-        # 支持的时间格式列表
-        time_formats = [
-            "%Y-%m-%dT%H:%M:%S.%fZ",      # 2025-10-01T12:00:00.123456Z
-            "%Y-%m-%dT%H:%M:%SZ",         # 2025-10-01T12:00:00Z
-            "%Y-%m-%dT%H:%M:%S.%f",       # 2025-10-01T12:00:00.123456
-            "%Y-%m-%dT%H:%M:%S",          # 2025-10-01T12:00:00
-            "%Y-%m-%d %H:%M:%S.%f",       # 2025-10-01 12:00:00.123456
-            "%Y-%m-%d %H:%M:%S",          # 2025-10-01 12:00:00
-            "%Y/%m/%d %H:%M:%S",          # 2025/10/01 12:00:00
-            "%d/%m/%Y %H:%M:%S",          # 01/10/2025 12:00:00
-        ]
+        # 首先检查是否是 /Date(timestamp)/ 格式
+        import re
+        date_match = re.match(r'/Date\((\d+)\)/', utc_time_str.strip())
+        if date_match:
+            # 提取时间戳（毫秒）
+            timestamp_ms = int(date_match.group(1))
+            # 转换为秒
+            timestamp_s = timestamp_ms / 1000.0
+            # 创建UTC datetime对象
+            utc_dt = datetime.fromtimestamp(timestamp_s, tz=pytz.UTC)
+        else:
+            # 支持的时间格式列表
+            time_formats = [
+                "%Y-%m-%dT%H:%M:%S.%fZ",      # 2025-10-01T12:00:00.123456Z
+                "%Y-%m-%dT%H:%M:%SZ",         # 2025-10-01T12:00:00Z
+                "%Y-%m-%dT%H:%M:%S.%f",       # 2025-10-01T12:00:00.123456
+                "%Y-%m-%dT%H:%M:%S",          # 2025-10-01T12:00:00
+                "%Y-%m-%d %H:%M:%S.%f",       # 2025-10-01 12:00:00.123456
+                "%Y-%m-%d %H:%M:%S",          # 2025-10-01 12:00:00
+                "%Y/%m/%d %H:%M:%S",          # 2025/10/01 12:00:00
+                "%d/%m/%Y %H:%M:%S",          # 01/10/2025 12:00:00
+            ]
 
-        # 尝试解析UTC时间
-        utc_dt = None
-        for fmt in time_formats:
-            try:
-                utc_dt = datetime.strptime(utc_time_str.strip(), fmt)
-                break
-            except ValueError:
-                continue
+            # 尝试解析UTC时间
+            utc_dt = None
+            for fmt in time_formats:
+                try:
+                    utc_dt = datetime.strptime(utc_time_str.strip(), fmt)
+                    break
+                except ValueError:
+                    continue
 
-        if utc_dt is None:
-            # 如果所有格式都失败，返回原始字符串
-            return utc_time_str
+            if utc_dt is None:
+                # 如果所有格式都失败，返回原始字符串
+                return utc_time_str
 
-        # 设置为UTC时区
-        if utc_dt.tzinfo is None:
-            utc_dt = utc_dt.replace(tzinfo=pytz.UTC)
+            # 设置为UTC时区（仅对非/Date格式需要）
+            if utc_dt.tzinfo is None:
+                utc_dt = utc_dt.replace(tzinfo=pytz.UTC)
 
         # 确定目标时区
         if local_timezone:
