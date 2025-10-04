@@ -337,10 +337,12 @@ class SimpleTaskManager:
 
     def _convert_to_events(self, detailed_events: list) -> List[SysmonEvent]:
         """
-        将详细事件转换为SysmonEvent对象（扁平化结构，提取关键字段）
+        将详细事件转换为SysmonEvent对象（直接使用扁平化结构）
+
+        注意：sysmon.py已经返回扁平化的事件，不再有parsed_fields嵌套结构
 
         Args:
-            detailed_events: 详细事件列表
+            detailed_events: 来自sysmon.py的扁平化详细事件列表
 
         Returns:
             List[SysmonEvent]: SysmonEvent对象列表
@@ -349,17 +351,11 @@ class SimpleTaskManager:
 
         for event in detailed_events:
             try:
-                # 提取parsed_fields中的关键信息
-                parsed_fields = event.get('parsed_fields', {})
-
-                # 从UtcTime字段获取格式化的时间戳
-                utc_time = parsed_fields.get('UtcTime', event.get('timestamp', ''))
-
-                # 创建简化的SysmonEvent对象
+                # 直接从扁平化的事件结构中提取字段（sysmon.py已经处理了扁平化）
                 event_obj = SysmonEvent(
                     event_id=str(event.get('event_id', '')),
                     event_name=event.get('event_type', ''),
-                    timestamp=utc_time,
+                    timestamp=event.get('timestamp', ''),
                     computer_name=event.get('computer_name', ''),
 
                     # 进程相关信息
@@ -396,15 +392,15 @@ class SimpleTaskManager:
                     signature=event.get('signature', ''),
                     signed=event.get('signed', ''),
 
-                    # 新增字段 - 从parsed_fields提取
+                    # 新增字段 - 直接从扁平化事件中提取
                     event_type=event.get('event_type', ''),
-                    source_process_guid=parsed_fields.get('SourceProcessGUID', ''),
-                    source_image=parsed_fields.get('SourceImage', event.get('source_image', '')),
-                    target_process_guid=parsed_fields.get('TargetProcessGUID', ''),
-                    target_image=parsed_fields.get('TargetImage', event.get('target_image', '')),
-                    call_trace=parsed_fields.get('CallTrace', event.get('call_trace', '')),
-                    source_user=parsed_fields.get('SourceUser', ''),
-                    target_user=parsed_fields.get('TargetUser', '')
+                    source_process_guid=event.get('source_process_guid', ''),
+                    source_image=event.get('source_image', ''),
+                    target_process_guid=event.get('target_process_guid', ''),
+                    target_image=event.get('target_image', ''),
+                    call_trace=event.get('call_trace', ''),
+                    source_user=event.get('source_user', ''),
+                    target_user=event.get('target_user', '')
                 )
                 events.append(event_obj)
             except Exception as e:

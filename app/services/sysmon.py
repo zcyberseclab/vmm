@@ -308,7 +308,7 @@ class SysmonAnalysisEngine:
         analysis["registry_operations"].append(registry_info)
 
     def _parse_detailed_event(self, event: Dict) -> Dict[str, Any]:
-        """解析详细的Sysmon事件信息"""
+        """解析详细的Sysmon事件信息 - 扁平化结构，保留所有信息但不重复"""
         try:
             event_id = event.get("Id", 0)
             message = event.get("Message", "")
@@ -320,31 +320,65 @@ class SysmonAnalysisEngine:
             # Convert timestamp to local time
             local_timestamp = format_timestamp_to_local(time_created) if time_created else ""
 
+            # 创建基础事件结构 - 扁平化，不保留raw_message和parsed_fields
             detailed_event = {
                 "event_id": event_id,
                 "timestamp": local_timestamp,
                 "utc_timestamp": time_created,
                 "level": event.get("LevelDisplayName", ""),
-                "raw_message": message,
-                "parsed_fields": parsed_fields
+
+                # 将parsed_fields中的所有信息直接提取到顶层
+                "computer_name": parsed_fields.get("Computer", ""),
+                "process_name": parsed_fields.get("ProcessName", ""),
+                "user": parsed_fields.get("User", ""),
+
+                # 通用字段初始化
+                "process_id": "",
+                "image": "",
+                "command_line": "",
+                "parent_process_id": "",
+                "parent_image": "",
+                "target_filename": "",
+                "creation_utc_time": "",
+                "source_ip": "",
+                "source_port": "",
+                "destination_ip": "",
+                "destination_port": "",
+                "protocol": "",
+                "query_name": "",
+                "query_results": "",
+                "source_process_id": "",
+                "target_process_id": "",
+                "granted_access": "",
+                "image_loaded": "",
+                "signature": "",
+                "signed": ""
             }
 
-            # 根据事件类型添加特定信息
+            # 根据事件类型填充特定信息 - 扁平化所有parsed_fields数据
             if event_id == 1:  # Process Creation
                 detailed_event.update({
                     "event_type": "Process Creation",
-                    "process_guid": parsed_fields.get("ProcessGuid", ""),
                     "process_id": parsed_fields.get("ProcessId", ""),
                     "image": parsed_fields.get("Image", ""),
                     "command_line": parsed_fields.get("CommandLine", ""),
                     "parent_image": parsed_fields.get("ParentImage", ""),
                     "parent_process_id": parsed_fields.get("ParentProcessId", ""),
-                    "user": parsed_fields.get("User", "")
+                    "user": parsed_fields.get("User", ""),
+                    # 添加所有其他parsed_fields中的信息
+                    "process_guid": parsed_fields.get("ProcessGuid", ""),
+                    "parent_process_guid": parsed_fields.get("ParentProcessGuid", ""),
+                    "terminal_session_id": parsed_fields.get("TerminalSessionId", ""),
+                    "integrity_level": parsed_fields.get("IntegrityLevel", ""),
+                    "hashes": parsed_fields.get("Hashes", ""),
+                    "parent_command_line": parsed_fields.get("ParentCommandLine", ""),
+                    "current_directory": parsed_fields.get("CurrentDirectory", ""),
+                    "logon_guid": parsed_fields.get("LogonGuid", ""),
+                    "logon_id": parsed_fields.get("LogonId", "")
                 })
             elif event_id == 3:  # Network Connection
                 detailed_event.update({
                     "event_type": "Network Connection",
-                    "process_guid": parsed_fields.get("ProcessGuid", ""),
                     "process_id": parsed_fields.get("ProcessId", ""),
                     "image": parsed_fields.get("Image", ""),
                     "protocol": parsed_fields.get("Protocol", ""),
@@ -352,75 +386,126 @@ class SysmonAnalysisEngine:
                     "source_port": parsed_fields.get("SourcePort", ""),
                     "destination_ip": parsed_fields.get("DestinationIp", ""),
                     "destination_port": parsed_fields.get("DestinationPort", ""),
-                    "user": parsed_fields.get("User", "")
+                    "user": parsed_fields.get("User", ""),
+                    # 添加所有其他parsed_fields中的信息
+                    "process_guid": parsed_fields.get("ProcessGuid", ""),
+                    "source_hostname": parsed_fields.get("SourceHostname", ""),
+                    "destination_hostname": parsed_fields.get("DestinationHostname", ""),
+                    "source_port_name": parsed_fields.get("SourcePortName", ""),
+                    "destination_port_name": parsed_fields.get("DestinationPortName", ""),
+                    "initiated": parsed_fields.get("Initiated", "")
                 })
             elif event_id == 5:  # Process Terminated
                 detailed_event.update({
                     "event_type": "Process Terminated",
-                    "process_guid": parsed_fields.get("ProcessGuid", ""),
                     "process_id": parsed_fields.get("ProcessId", ""),
                     "image": parsed_fields.get("Image", ""),
-                    "user": parsed_fields.get("User", "")
+                    "user": parsed_fields.get("User", ""),
+                    # 添加所有其他parsed_fields中的信息
+                    "process_guid": parsed_fields.get("ProcessGuid", "")
                 })
             elif event_id == 7:  # Image Loaded
                 detailed_event.update({
                     "event_type": "Image Loaded",
-                    "process_guid": parsed_fields.get("ProcessGuid", ""),
                     "process_id": parsed_fields.get("ProcessId", ""),
                     "image": parsed_fields.get("Image", ""),
                     "image_loaded": parsed_fields.get("ImageLoaded", ""),
                     "signed": parsed_fields.get("Signed", ""),
-                    "signature": parsed_fields.get("Signature", "")
+                    "signature": parsed_fields.get("Signature", ""),
+                    # 添加所有其他parsed_fields中的信息
+                    "process_guid": parsed_fields.get("ProcessGuid", ""),
+                    "signature_status": parsed_fields.get("SignatureStatus", ""),
+                    "file_version": parsed_fields.get("FileVersion", ""),
+                    "description": parsed_fields.get("Description", ""),
+                    "product": parsed_fields.get("Product", ""),
+                    "company": parsed_fields.get("Company", ""),
+                    "original_file_name": parsed_fields.get("OriginalFileName", ""),
+                    "hashes": parsed_fields.get("Hashes", "")
                 })
             elif event_id == 10:  # Process Access
                 detailed_event.update({
                     "event_type": "Process Access",
-                    "source_process_guid": parsed_fields.get("SourceProcessGuid", ""),
                     "source_process_id": parsed_fields.get("SourceProcessId", ""),
                     "source_image": parsed_fields.get("SourceImage", ""),
-                    "target_process_guid": parsed_fields.get("TargetProcessGuid", ""),
                     "target_process_id": parsed_fields.get("TargetProcessId", ""),
                     "target_image": parsed_fields.get("TargetImage", ""),
                     "granted_access": parsed_fields.get("GrantedAccess", ""),
-                    "call_trace": parsed_fields.get("CallTrace", "")
+                    "call_trace": parsed_fields.get("CallTrace", ""),
+                    # 添加所有其他parsed_fields中的信息
+                    "source_process_guid": parsed_fields.get("SourceProcessGuid", ""),
+                    "target_process_guid": parsed_fields.get("TargetProcessGuid", ""),
+                    "source_thread_id": parsed_fields.get("SourceThreadId", ""),
+                    "source_user": parsed_fields.get("SourceUser", ""),
+                    "target_user": parsed_fields.get("TargetUser", "")
                 })
             elif event_id == 11:  # File Create
                 creation_utc_time = parsed_fields.get("CreationUtcTime", "")
                 creation_local_time = format_timestamp_to_local(creation_utc_time) if creation_utc_time else ""
                 detailed_event.update({
                     "event_type": "File Create",
-                    "process_guid": parsed_fields.get("ProcessGuid", ""),
                     "process_id": parsed_fields.get("ProcessId", ""),
                     "image": parsed_fields.get("Image", ""),
                     "target_filename": parsed_fields.get("TargetFilename", ""),
                     "creation_utc_time": creation_utc_time,
-                    "creation_local_time": creation_local_time
+                    # 添加所有其他parsed_fields中的信息
+                    "process_guid": parsed_fields.get("ProcessGuid", ""),
+                    "creation_local_time": creation_local_time,
+                    "user": parsed_fields.get("User", "")
                 })
             elif event_id == 22:  # DNS Query
                 detailed_event.update({
                     "event_type": "DNS Query",
-                    "process_guid": parsed_fields.get("ProcessGuid", ""),
                     "process_id": parsed_fields.get("ProcessId", ""),
                     "image": parsed_fields.get("Image", ""),
                     "query_name": parsed_fields.get("QueryName", ""),
+                    "query_results": parsed_fields.get("QueryResults", ""),
+                    # 添加所有其他parsed_fields中的信息
+                    "process_guid": parsed_fields.get("ProcessGuid", ""),
                     "query_status": parsed_fields.get("QueryStatus", ""),
-                    "query_results": parsed_fields.get("QueryResults", "")
+                    "user": parsed_fields.get("User", "")
                 })
             elif event_id == 23:  # File Delete
                 detailed_event.update({
                     "event_type": "File Delete",
-                    "process_guid": parsed_fields.get("ProcessGuid", ""),
                     "process_id": parsed_fields.get("ProcessId", ""),
                     "image": parsed_fields.get("Image", ""),
                     "target_filename": parsed_fields.get("TargetFilename", ""),
-                    "archived": parsed_fields.get("Archived", "")
+                    # 添加所有其他parsed_fields中的信息
+                    "process_guid": parsed_fields.get("ProcessGuid", ""),
+                    "archived": parsed_fields.get("Archived", ""),
+                    "user": parsed_fields.get("User", ""),
+                    "hashes": parsed_fields.get("Hashes", "")
                 })
+
+            # 对于其他事件类型，也要扁平化所有parsed_fields数据
+            else:
+                detailed_event.update({
+                    "event_type": f"Event {event_id}",
+                    "process_id": parsed_fields.get("ProcessId", ""),
+                    "image": parsed_fields.get("Image", ""),
+                    "user": parsed_fields.get("User", ""),
+                    "process_guid": parsed_fields.get("ProcessGuid", "")
+                })
+
+                # 将所有parsed_fields中的其他字段都添加到事件中
+                for key, value in parsed_fields.items():
+                    if key not in detailed_event:
+                        # 转换字段名为snake_case
+                        snake_key = self._convert_to_snake_case(key)
+                        detailed_event[snake_key] = value
 
             return detailed_event
 
         except Exception as e:
             logger.warning(f"Error parsing detailed event: {str(e)}")
             return None
+
+    def _convert_to_snake_case(self, camel_str: str) -> str:
+        """将CamelCase转换为snake_case"""
+        import re
+        # 在大写字母前插入下划线，然后转换为小写
+        snake_str = re.sub('(.)([A-Z][a-z]+)', r'\1_\2', camel_str)
+        return re.sub('([a-z0-9])([A-Z])', r'\1_\2', snake_str).lower()
 
     def _parse_sysmon_message(self, message: str) -> Dict[str, str]:
         """解析Sysmon消息中的键值对"""
