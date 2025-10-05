@@ -3,7 +3,7 @@
 """
 from datetime import datetime
 from enum import Enum
-from typing import List, Optional, Dict, Any, Union
+from typing import List, Optional, Dict, Any
 from pydantic import BaseModel, Field, model_serializer
 import uuid
 from app.utils.helpers import format_timestamp_to_local
@@ -46,6 +46,24 @@ class EDRAlert(BaseModel):
     file_paths: Optional[List[str]] = Field(default_factory=list)  # 文件路径数组
     network_connections: Optional[List[dict]] = Field(default_factory=list)  # 网络连接数组
     source: Optional[str] = None
+
+    @model_serializer
+    def serialize_model(self):
+        """自定义序列化，将detection_time转换为本地时间格式"""
+        from app.utils.helpers import format_timestamp_to_local
+
+        return {
+            'severity': self.severity,
+            'alert_type': self.alert_type,
+            'process_name': self.process_name,
+            'command_line': self.command_line,
+            'detect_reason': self.detect_reason,
+            'detection_time': format_timestamp_to_local(self.detection_time) if self.detection_time else None,
+            'file_path': self.file_path,
+            'file_paths': self.file_paths,
+            'network_connections': self.network_connections,
+            'source': self.source
+        }
 
 
 class SysmonEvent(BaseModel):

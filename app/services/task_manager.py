@@ -8,6 +8,7 @@ from loguru import logger
 
 from app.models.task import AnalysisTask, TaskStatus, VMTaskResult, VMTaskStatus, EDRAlert, BehaviorAnalysisResult, SysmonEvent, BehaviorStatistics
 from app.core.config import get_settings
+from app.utils.performance_monitor import get_performance_monitor
 
 
 class SimpleTaskManager:
@@ -236,18 +237,10 @@ class SimpleTaskManager:
                 self.settings.sysmon_analysis and
                 self.settings.sysmon_analysis.enabled):
 
-                logger.info(f"🔍 Sysmon分析已启用，同时运行Sysmon和EDR分析: {task.task_id}")
+                logger.info(f"🔍 Sysmon分析已启用，并行运行Sysmon和EDR分析: {task.task_id}")
 
-                # 先运行Sysmon分析
-                await self._process_with_sysmon(task)
-
-                # 然后运行标准EDR分析（如果任务指定了vm_names）
-                if task.vm_names:
-                    logger.info(f"📊 开始标准EDR分析: {task.task_id} 在 {len(task.vm_names)} 个VM上")
-                    engine = AnalysisEngine()
-                    await engine.analyze_sample(task)
-                else:
-                    logger.info(f"📊 跳过标准EDR分析: 任务 {task.task_id} 未指定vm_names")
+                # 并行执行Sysmon和EDR分析
+                await self._process_parallel_analysis(task)
 
             else:
                 logger.info(f"📊 使用标准EDR分析引擎分析任务: {task.task_id}")
@@ -275,6 +268,120 @@ class SimpleTaskManager:
             task.error_message = str(e)
             task.completed_at = datetime.utcnow()
             logger.error(f"任务执行失败: {task.task_id} - {str(e)}")
+
+    async def _process_parallel_analysis(self, task: AnalysisTask):
+        """并行执行Sysmon和EDR分析"""
+        logger.info(f"🚀 开始并行分析: {task.task_id}")
+
+        # 启动性能监控
+        performance_monitor = get_performance_monitor()
+        metrics = performance_monitor.start_task_monitoring(
+            task_id=task.task_id,
+            analysis_type="parallel",
+            vm_count=len(task.vm_names) if task.vm_names else 0
+        )
+
+        # 创建并行任务列表
+        analysis_tasks = []
+        task_names = []
+
+        # Sysmon分析任务
+        sysmon_task = asyncio.create_task(
+            self._process_with_sysmon_parallel(task),
+            name=f"sysmon-{task.task_id}"
+        )
+        analysis_tasks.append(sysmon_task)
+        task_names.append("Sysmon")
+
+        # EDR分析任务（如果指定了vm_names）
+        if task.vm_names:
+            logger.info(f"📊 添加EDR分析任务: {len(task.vm_names)} 个VM")
+            edr_task = asyncio.create_task(
+                self._process_with_edr_parallel(task),
+                name=f"edr-{task.task_id}"
+            )
+            analysis_tasks.append(edr_task)
+            task_names.append("EDR")
+        else:
+            logger.info(f"📊 跳过EDR分析: 任务 {task.task_id} 未指定vm_names")
+
+        # 并行执行所有分析任务
+        start_time = datetime.utcnow()
+        logger.info(f"⏱️ 开始并行执行 {len(analysis_tasks)} 个分析任务")
+
+        try:
+            # 使用 gather 并行执行，return_exceptions=True 确保一个失败不影响其他
+            results = await asyncio.gather(*analysis_tasks, return_exceptions=True)
+
+            # 处理结果
+            success_count = 0
+            for i, (task_name, result) in enumerate(zip(task_names, results)):
+                if isinstance(result, Exception):
+                    logger.error(f"❌ {task_name}分析失败: {result}")
+                else:
+                    logger.info(f"✅ {task_name}分析完成")
+                    success_count += 1
+
+            # 计算总时间
+            total_time = (datetime.utcnow() - start_time).total_seconds()
+            logger.info(f"🎯 并行分析完成: {success_count}/{len(analysis_tasks)} 成功, 总耗时: {total_time:.1f}秒")
+
+            # 统计事件和告警数量
+            total_events = 0
+            total_alerts = 0
+
+            if task.behavior_results and task.behavior_results.events:
+                total_events = len(task.behavior_results.events)
+
+            if task.edr_results:
+                for edr_result in task.edr_results:
+                    total_alerts += len(edr_result.alerts)
+
+            # 结束性能监控
+            performance_monitor.end_task_monitoring(
+                task_id=task.task_id,
+                status="completed" if success_count > 0 else "failed",
+                event_count=total_events,
+                alert_count=total_alerts,
+                error_message="" if success_count > 0 else "部分或全部分析任务失败"
+            )
+
+            # 如果所有任务都失败，抛出异常
+            if success_count == 0:
+                raise Exception("所有分析任务都失败了")
+
+        except Exception as e:
+            # 记录失败的性能监控
+            performance_monitor.end_task_monitoring(
+                task_id=task.task_id,
+                status="failed",
+                error_message=str(e)
+            )
+            logger.error(f"❌ 并行分析执行失败: {str(e)}")
+            raise
+
+    async def _process_with_sysmon_parallel(self, task: AnalysisTask):
+        """并行版本的Sysmon分析处理"""
+        try:
+            logger.info(f"🔍 [并行] 开始Sysmon分析: {task.task_id}")
+            await self._process_with_sysmon(task)
+            logger.info(f"✅ [并行] Sysmon分析完成: {task.task_id}")
+        except Exception as e:
+            logger.error(f"❌ [并行] Sysmon分析失败: {task.task_id} - {str(e)}")
+            raise
+
+    async def _process_with_edr_parallel(self, task: AnalysisTask):
+        """并行版本的EDR分析处理"""
+        try:
+            logger.info(f"📊 [并行] 开始EDR分析: {task.task_id} 在 {len(task.vm_names)} 个VM上")
+            # 导入AnalysisEngine
+            from app.services.analysis_engine import AnalysisEngine
+            engine = AnalysisEngine()
+            await engine.analyze_sample(task)
+            logger.info(f"✅ [并行] EDR分析完成: {task.task_id}")
+        except Exception as e:
+            logger.error(f"❌ [并行] EDR分析失败: {task.task_id} - {str(e)}")
+            raise
 
     async def _process_with_sysmon(self, task: AnalysisTask):
         """

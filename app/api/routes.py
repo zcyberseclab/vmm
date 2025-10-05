@@ -66,12 +66,13 @@ async def submit_analysis(
             )
         
         # 处理虚拟机名称列表
+        available_vms = []
+        if hasattr(settings, 'edr_analysis') and settings.edr_analysis:
+            available_vms = [vm.name for vm in settings.edr_analysis.vms]
+
         if vm_names:
             vm_list = [name.strip() for name in vm_names.split(",")]
             # 验证虚拟机名称
-            available_vms = []
-            if hasattr(settings, 'edr_analysis') and settings.edr_analysis:
-                available_vms = [vm.name for vm in settings.edr_analysis.vms]
             invalid_vms = [vm for vm in vm_list if vm not in available_vms]
             if invalid_vms:
                 raise HTTPException(
@@ -79,7 +80,9 @@ async def submit_analysis(
                     detail=f"无效的虚拟机名称: {', '.join(invalid_vms)}"
                 )
         else:
-            vm_list = []
+            # 如果没有指定VM，使用所有可用的EDR VM
+            vm_list = available_vms
+            logger.info(f"未指定VM名称，自动使用所有可用VM: {vm_list}")
             if hasattr(settings, 'edr_analysis') and settings.edr_analysis:
                 vm_list = [vm.name for vm in settings.edr_analysis.vms]
         
