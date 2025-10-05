@@ -4,8 +4,9 @@
 from datetime import datetime
 from enum import Enum
 from typing import List, Optional, Dict, Any, Union
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_serializer
 import uuid
+from app.utils.helpers import format_timestamp_to_local
 
 
 class TaskStatus(str, Enum):
@@ -48,53 +49,27 @@ class EDRAlert(BaseModel):
 
 
 class SysmonEvent(BaseModel):
-    """Sysmon事件数据结构 - 简化扁平结构"""
+    """Sysmon事件数据结构 - 精简版，只保留有实际数据的字段"""
 
     # 基本事件信息
     event_id: str  # Sysmon事件ID (1, 3, 5, 7, 10, 11, 22, 23等)
     event_name: Optional[str] = None  # 事件名称 (Process Creation, Network Connection等)
-    timestamp: Optional[str] = None  # 事件时间戳
-    computer_name: Optional[str] = None  # 计算机名
+    timestamp: Optional[str] = None  # 事件时间戳（本地时间）
+    event_type: Optional[str] = None  # 事件类型
 
-    # 进程相关信息
+    # 进程相关信息（有实际数据的字段）
     process_id: Optional[str] = None  # 进程ID
-    process_name: Optional[str] = None  # 进程名称
     image: Optional[str] = None  # 进程完整路径
-    command_line: Optional[str] = None  # 命令行参数
-    parent_process_id: Optional[str] = None  # 父进程ID
-    parent_image: Optional[str] = None  # 父进程路径
     user: Optional[str] = None  # 用户
 
-    # 文件相关信息
+    # 文件相关信息（File Create事件使用）
     target_filename: Optional[str] = None  # 目标文件名
-    creation_utc_time: Optional[str] = None  # 文件创建时间
 
-    # 网络相关信息
-    source_ip: Optional[str] = None  # 源IP
-    source_port: Optional[str] = None  # 源端口
-    destination_ip: Optional[str] = None  # 目标IP
-    destination_port: Optional[str] = None  # 目标端口
-    protocol: Optional[str] = None  # 协议
-
-    # DNS相关信息
-    query_name: Optional[str] = None  # DNS查询名称
-    query_results: Optional[str] = None  # DNS查询结果
-
-    # 进程访问相关信息
+    # 进程访问相关信息（Process Access事件使用）
     source_process_id: Optional[str] = None  # 源进程ID
     target_process_id: Optional[str] = None  # 目标进程ID
     granted_access: Optional[str] = None  # 授予的访问权限
-
-    # 镜像加载相关信息
-    image_loaded: Optional[str] = None  # 加载的镜像路径
-    signature: Optional[str] = None  # 签名信息
-    signed: Optional[str] = None  # 是否签名
-
-    # 新增字段 - 从parsed_fields提取的关键信息
-    event_type: Optional[str] = None  # 事件类型
-    source_process_guid: Optional[str] = None  # 源进程GUID
     source_image: Optional[str] = None  # 源进程镜像路径
-    target_process_guid: Optional[str] = None  # 目标进程GUID
     target_image: Optional[str] = None  # 目标进程镜像路径
     call_trace: Optional[str] = None  # 调用跟踪
     source_user: Optional[str] = None  # 源用户
@@ -144,6 +119,18 @@ class VMTaskResult(BaseModel):
     error_message: Optional[str] = None
     alerts: List[EDRAlert] = Field(default_factory=list)
 
+    @model_serializer
+    def serialize_model(self):
+        """自定义序列化，将datetime转换为本地时间格式"""
+        return {
+            'vm_name': self.vm_name,
+            'status': self.status,
+            'start_time': format_timestamp_to_local(self.start_time) if self.start_time else None,
+            'end_time': format_timestamp_to_local(self.end_time) if self.end_time else None,
+            'error_message': self.error_message,
+            'alerts': self.alerts
+        }
+
 
 class BehaviorAnalysisResult(BaseModel):
     """行为分析结果"""
@@ -158,6 +145,19 @@ class BehaviorAnalysisResult(BaseModel):
 
     # 统计信息
     statistics: BehaviorStatistics = Field(default_factory=BehaviorStatistics)  # 行为统计
+
+    @model_serializer
+    def serialize_model(self):
+        """自定义序列化，将datetime转换为本地时间格式"""
+        return {
+            'analysis_engine': self.analysis_engine,
+            'status': self.status,
+            'start_time': format_timestamp_to_local(self.start_time) if self.start_time else None,
+            'end_time': format_timestamp_to_local(self.end_time) if self.end_time else None,
+            'error_message': self.error_message,
+            'events': self.events,
+            'statistics': self.statistics
+        }
     
 
 class AnalysisTask(BaseModel):
@@ -177,10 +177,31 @@ class AnalysisTask(BaseModel):
     error_message: Optional[str] = None
     edr_results: List[VMTaskResult] = Field(default_factory=list)
     behavior_results: Optional[BehaviorAnalysisResult] = None
-    
+
+    @model_serializer
+    def serialize_model(self):
+        """自定义序列化，将datetime转换为本地时间格式"""
+        return {
+            'task_id': self.task_id,
+            'file_name': self.file_name,
+            'file_hash': self.file_hash,
+            'file_size': self.file_size,
+            'file_path': self.file_path,
+            'is_compressed': self.is_compressed,
+            'vm_names': self.vm_names,
+            'timeout': self.timeout,
+            'status': self.status,
+            'created_at': format_timestamp_to_local(self.created_at) if self.created_at else None,
+            'started_at': format_timestamp_to_local(self.started_at) if self.started_at else None,
+            'completed_at': format_timestamp_to_local(self.completed_at) if self.completed_at else None,
+            'error_message': self.error_message,
+            'edr_results': self.edr_results,
+            'behavior_results': self.behavior_results
+        }
+
     class Config:
         json_encoders = {
-            datetime: lambda v: v.isoformat()
+            datetime: lambda v: format_timestamp_to_local(v)
         }
 
 
@@ -215,7 +236,7 @@ class TaskDetailResponse(BaseModel):
     
     class Config:
         json_encoders = {
-            datetime: lambda v: v.isoformat()
+            datetime: lambda v: format_timestamp_to_local(v)
         }
 
 
@@ -230,5 +251,5 @@ class AnalysisResultResponse(BaseModel):
     
     class Config:
         json_encoders = {
-            datetime: lambda v: v.isoformat()
+            datetime: lambda v: format_timestamp_to_local(v)
         }

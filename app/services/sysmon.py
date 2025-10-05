@@ -323,38 +323,26 @@ class SysmonAnalysisEngine:
             # Convert timestamp to local time
             local_timestamp = format_timestamp_to_local(utc_time) if utc_time else ""
 
-            # 创建基础事件结构 - 扁平化，不保留raw_message和parsed_fields
+            # 创建基础事件结构 - 精简版，只包含有实际数据的字段
             detailed_event = {
                 "event_id": event_id,
                 "timestamp": local_timestamp,
                 "level": event.get("LevelDisplayName", ""),
 
-                # 将parsed_fields中的所有信息直接提取到顶层
-                "computer_name": parsed_fields.get("Computer", ""),
-                "process_name": parsed_fields.get("ProcessName", ""),
+                # 基础字段初始化（只保留有实际数据的字段）
                 "user": parsed_fields.get("User", ""),
-
-                # 通用字段初始化
                 "process_id": "",
                 "image": "",
-                "command_line": "",
-                "parent_process_id": "",
-                "parent_image": "",
                 "target_filename": "",
-                "creation_utc_time": "",
-                "source_ip": "",
-                "source_port": "",
-                "destination_ip": "",
-                "destination_port": "",
-                "protocol": "",
-                "query_name": "",
-                "query_results": "",
                 "source_process_id": "",
                 "target_process_id": "",
                 "granted_access": "",
-                "image_loaded": "",
-                "signature": "",
-                "signed": ""
+                "event_type": "",
+                "source_image": "",
+                "target_image": "",
+                "call_trace": "",
+                "source_user": "",
+                "target_user": ""
             }
 
             # 根据事件类型填充特定信息 - 扁平化所有parsed_fields数据

@@ -351,52 +351,26 @@ class SimpleTaskManager:
 
         for event in detailed_events:
             try:
-                # 直接从扁平化的事件结构中提取字段（sysmon.py已经处理了扁平化）
+                # 直接从扁平化的事件结构中提取字段（只保留有实际数据的字段）
                 event_obj = SysmonEvent(
                     event_id=str(event.get('event_id', '')),
                     event_name=event.get('event_type', ''),
                     timestamp=event.get('timestamp', ''),
-                    computer_name=event.get('computer_name', ''),
+                    event_type=event.get('event_type', ''),
 
-                    # 进程相关信息
+                    # 进程相关信息（有实际数据的字段）
                     process_id=event.get('process_id', ''),
-                    process_name=event.get('process_name', ''),
                     image=event.get('image', ''),
-                    command_line=event.get('command_line', ''),
-                    parent_process_id=event.get('parent_process_id', ''),
-                    parent_image=event.get('parent_image', ''),
                     user=event.get('user', ''),
 
-                    # 文件相关信息
+                    # 文件相关信息（File Create事件使用）
                     target_filename=event.get('target_filename', ''),
-                    creation_utc_time=event.get('creation_utc_time', ''),
 
-                    # 网络相关信息
-                    source_ip=event.get('source_ip', ''),
-                    source_port=event.get('source_port', ''),
-                    destination_ip=event.get('destination_ip', ''),
-                    destination_port=event.get('destination_port', ''),
-                    protocol=event.get('protocol', ''),
-
-                    # DNS相关信息
-                    query_name=event.get('query_name', ''),
-                    query_results=event.get('query_results', ''),
-
-                    # 进程访问相关信息
+                    # 进程访问相关信息（Process Access事件使用）
                     source_process_id=event.get('source_process_id', ''),
                     target_process_id=event.get('target_process_id', ''),
                     granted_access=event.get('granted_access', ''),
-
-                    # 镜像加载相关信息
-                    image_loaded=event.get('image_loaded', ''),
-                    signature=event.get('signature', ''),
-                    signed=event.get('signed', ''),
-
-                    # 新增字段 - 直接从扁平化事件中提取
-                    event_type=event.get('event_type', ''),
-                    source_process_guid=event.get('source_process_guid', ''),
                     source_image=event.get('source_image', ''),
-                    target_process_guid=event.get('target_process_guid', ''),
                     target_image=event.get('target_image', ''),
                     call_trace=event.get('call_trace', ''),
                     source_user=event.get('source_user', ''),
