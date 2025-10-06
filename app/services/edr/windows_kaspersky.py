@@ -1,10 +1,4 @@
-"""
-kaspersky EDR Client Implementation - 简化版本
-
-这个模块提供简化的kaspersky EDR客户端实现。
-只保留最有效的威胁检测方法：先通过avp.com命令导出查杀日志到文件,在解析导出的日志文件获取威胁信息。
-"""
-
+ 
 import os
 import re
 import asyncio
@@ -19,6 +13,9 @@ from .base import EDRClient
 
 
 class KasperskyEDRClient(EDRClient):
+
+
+
     async def get_alerts(
         self,
         start_time: datetime,
@@ -31,19 +28,31 @@ class KasperskyEDRClient(EDRClient):
             export_report_cmd = f"& 'C:\\Program Files (x86)\\Kaspersky Lab\\Kaspersky 21.15\\avp.com' report FM /RA:{report_path}"
             logger.info(f"执行导出Kaspersky报告: {export_report_cmd}")
             logger.info(f"导出路径: {report_path}")
-            success_export, _ = await self.vm_controller.execute_command_in_vm(
+
+            # 使用优化的超时时间：报告导出操作
+            success_export, export_output = await self.vm_controller.execute_command_in_vm(
                 self.vm_name,
                 export_report_cmd,
                 self.username,
                 self.password,
-                timeout=180,
+                timeout=self.timeouts.report_export_timeout,  # 从180秒优化为120秒
             )
 
-           
+            if not success_export:
+                logger.warning(f"Kaspersky报告导出失败: {export_output}")
+                return []
+
+
             #获取report.txt文件内容命令
             get_report_cmd = f"powershell.exe -Command Get-Content {report_path}"
+
+            # 使用优化的超时时间：文件读取操作
             success, output = await self.vm_controller.execute_command_in_vm(
-                self.vm_name, get_report_cmd, self.username, self.password, timeout=180
+                self.vm_name,
+                get_report_cmd,
+                self.username,
+                self.password,
+                timeout=self.timeouts.file_read_timeout  # 从180秒优化为30秒
             )
             logger.info(f"powershell.exe -Command Get-Content: {success}")
 

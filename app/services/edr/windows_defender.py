@@ -1,9 +1,4 @@
-"""
-Windows Defender EDR Client Implementation - 简化版本
-
-这个模块提供简化的Windows Defender EDR客户端实现。
-只保留最有效的威胁检测方法：通过Windows事件日志获取威胁信息。
-"""
+ 
 
 import os
 import re
@@ -19,6 +14,8 @@ from .base import EDRClient
 
 
 class WindowsDefenderEDRClient(EDRClient):
+
+
 
     async def get_alerts(self, start_time: datetime, end_time: Optional[datetime] = None,
                         file_hash: Optional[str] = None, file_name: Optional[str] = None) -> List[EDRAlert]:
@@ -61,7 +58,8 @@ class WindowsDefenderEDRClient(EDRClient):
             ]
 
             success, output = await self.vm_controller.execute_program_in_vm(
-                self.vm_name, program_path, arguments, self.username, self.password, timeout=60
+                self.vm_name, program_path, arguments, self.username, self.password,
+                timeout=self.timeouts.simple_command_timeout  # 使用配置的超时时间
             )
 
             # 如果方法1失败，回退到cmd.exe方法
@@ -70,7 +68,8 @@ class WindowsDefenderEDRClient(EDRClient):
                 event_cmd = 'powershell -Command "Get-WinEvent -FilterHashtable @{LogName=\'Microsoft-Windows-Windows Defender/Operational\'; ID=1116,1117,1118,1119} -MaxEvents 20 | Select-Object TimeCreated, Id, LevelDisplayName, Message | Format-List"'
 
                 success, output = await self.vm_controller.execute_command_in_vm(
-                    self.vm_name, event_cmd, self.username, self.password, timeout=60
+                    self.vm_name, event_cmd, self.username, self.password,
+                    timeout=self.timeouts.simple_command_timeout  # 使用配置的超时时间
                 )
 
             #print(f"=== Windows Defender 事件日志查询结果 ===")

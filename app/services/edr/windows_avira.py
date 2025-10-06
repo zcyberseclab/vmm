@@ -1,9 +1,3 @@
-"""
-avira EDR Client Implementation - 简化版本
-
-这个模块提供简化的avira客户端实现。
-只保留最有效的威胁检测方法：通过读取保存在隔离样本的文件头部信息获取威胁信息(avira会把恶意文件加密,并在文件头添加标签,修改后缀名.qua后保存隔离)。
-"""
 
 import os
 import re
@@ -20,6 +14,9 @@ from .base import EDRClient
 
 
 class AviraEDRClient(EDRClient):
+
+
+
     async def get_alerts(
         self,
         start_time: datetime,
@@ -53,7 +50,7 @@ class AviraEDRClient(EDRClient):
                     arguments,
                     self.username,
                     self.password,
-                    timeout=60,
+                    timeout=self.timeouts.file_list_timeout,  # 使用配置的文件列表超时
                 )
             )
             if output_path.strip() == "":
@@ -84,7 +81,7 @@ class AviraEDRClient(EDRClient):
                             parse_report,
                             self.username,
                             self.password,
-                            timeout=60,
+                            timeout=self.timeouts.file_read_timeout,  # 使用配置的文件读取超时
                         )
                     )
                     if success and output.strip():

@@ -13,6 +13,8 @@ from .base import EDRClient
 
 class McafeeEDRClient(EDRClient):
 
+
+
     async def get_alerts(self, start_time: datetime, end_time: Optional[datetime] = None,
                         file_hash: Optional[str] = None, file_name: Optional[str] = None) -> List[EDRAlert]:
 
@@ -44,9 +46,15 @@ class McafeeEDRClient(EDRClient):
        
         try:
             log_path = (r"'C:\ProgramData\McAfee\wps\Detection.log'")
-            get_log_cmd = f"powershell -Command Get-Content {log_path}" 
+            get_log_cmd = f"powershell -Command Get-Content {log_path}"
+
+            # 使用优化的超时时间：从180秒优化为60秒
             success, output = await self.vm_controller.execute_command_in_vm(
-                self.vm_name, get_log_cmd, self.username, self.password, timeout=180
+                self.vm_name,
+                get_log_cmd,
+                self.username,
+                self.password,
+                timeout=self.timeouts.log_analysis_timeout  # 从180秒优化为90秒
             )
                         
             if success and output.strip():

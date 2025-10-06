@@ -1,9 +1,4 @@
-"""
-trend EDR Client Implementation - 简化版本
-
-这个模块提供简化的trend EDR客户端实现。
-只保留最有效的威胁检测方法：通过读取查杀日志获取威胁信息。
-"""
+ 
 
 import os
 import re
@@ -44,7 +39,7 @@ class TrendMicroEDRClient(EDRClient):
                     arguments,
                     self.username,
                     self.password,
-                    timeout=60,
+                    timeout=self.timeouts.file_list_timeout,  # 使用配置的文件列表超时
                 )
             )
             # get_report_path = f"Get-ChildItem {report_path} -File -Filter '*.xml' | Select-Object -ExpandProperty Name"
@@ -80,7 +75,7 @@ class TrendMicroEDRClient(EDRClient):
                     get_report_cmd,
                     self.username,
                     self.password,
-                    timeout=60,
+                    timeout=self.timeouts.file_read_timeout,  # 使用配置的文件读取超时
                 )
                 if success and output.strip():
                     try:

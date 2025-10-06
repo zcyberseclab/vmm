@@ -11,6 +11,7 @@ from typing import List, Optional
 
 from app.models.task import EDRAlert
 from app.services.vm_controller import VMController
+from app.core.config import get_settings
 
 
 class EDRClient(ABC):
@@ -25,7 +26,7 @@ class EDRClient(ABC):
     def __init__(self, vm_name: str, vm_controller: VMController, username: str = "vboxuser", password: str = "123456"):
         """
         Initialize the EDR client.
-        
+
         Args:
             vm_name: Name of the virtual machine
             vm_controller: VM controller instance for executing commands
@@ -36,6 +37,17 @@ class EDRClient(ABC):
         self.vm_controller = vm_controller
         self.username = username
         self.password = password
+
+        # 获取超时配置
+        settings = get_settings()
+        if settings.edr_analysis and settings.edr_analysis.analysis_settings:
+            self.timeouts = settings.edr_analysis.analysis_settings.edr_timeouts
+        else:
+            # 使用默认超时配置
+            from app.core.config import EDRTimeoutSettings
+            self.timeouts = EDRTimeoutSettings()
+
+
 
     @abstractmethod
     async def get_alerts(self, start_time: datetime, end_time: Optional[datetime] = None,

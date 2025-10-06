@@ -49,12 +49,32 @@ class EDRVMConfig(BaseModel):
             self.desktop_path = f"C:\\Users\\{self.username}\\Desktop"
 
 
+class EDRTimeoutSettings(BaseModel):
+    """EDR特定的超时配置"""
+    # 基础操作超时
+    file_read_timeout: int = 30          # 文件读取操作
+    file_list_timeout: int = 30          # 文件列表获取
+    simple_command_timeout: int = 60     # 简单命令执行
+
+    # 复杂操作超时
+    report_export_timeout: int = 120     # 报告导出操作
+    log_analysis_timeout: int = 90       # 日志分析操作
+    complex_operation_timeout: int = 180 # 复杂操作
+
+    # 预检查超时
+    availability_check_timeout: int = 15 # EDR软件可用性检查
+    service_status_timeout: int = 10     # 服务状态检查
+
+
 class AnalysisSettings(BaseModel):
     """分析配置"""
     static_scan_timeout: int = 120
     dynamic_analysis_timeout: int = 180
     vm_startup_timeout: int = 60
     file_transfer_timeout: int = 30
+
+    # EDR特定超时设置
+    edr_timeouts: EDRTimeoutSettings = EDRTimeoutSettings()
 
 
 class SampleSettings(BaseModel):
