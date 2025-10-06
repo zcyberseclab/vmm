@@ -233,9 +233,9 @@ class SimpleTaskManager:
             task.started_at = datetime.utcnow()
 
             # 检查是否启用Sysmon分析
-            if (hasattr(self.settings, 'sysmon_analysis') and
-                self.settings.sysmon_analysis and
-                self.settings.sysmon_analysis.enabled):
+            if (self.settings.windows and
+                self.settings.windows.sysmon_analysis and
+                self.settings.windows.sysmon_analysis.enabled):
 
                 logger.info(f"🔍 Sysmon分析已启用，并行运行Sysmon和EDR分析: {task.task_id}")
 
@@ -415,7 +415,7 @@ class SimpleTaskManager:
                 sample_path=task.file_path,
                 sample_hash=task.file_hash,
                 analysis_timeout=task.timeout,
-                config_type=self.settings.sysmon_analysis.config_type
+                config_type=self.settings.windows.sysmon_analysis.config_type
             )
 
             # 将Sysmon分析结果转换为Event格式（保留原始数据）

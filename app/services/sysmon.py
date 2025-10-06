@@ -58,11 +58,13 @@ class SysmonAnalysisEngine:
         logger.info(f"   - Config: {config_type}")
         logger.info(f"   - Timeout: {analysis_timeout}s")
 
-        if not self.settings.sysmon_analysis.enabled:
+        if not (self.settings.windows and
+                self.settings.windows.sysmon_analysis and
+                self.settings.windows.sysmon_analysis.enabled):
             raise Exception("Sysmon analysis is disabled in configuration")
 
         # Get Sysmon VM configuration
-        vm_config = self.settings.sysmon_analysis.vm
+        vm_config = self.settings.windows.sysmon_analysis.vm
         vm_name = vm_config.name
 
         logger.info(f"🚀 Starting Sysmon analysis for sample {sample_hash} on VM {vm_name}")
@@ -182,7 +184,7 @@ class SysmonAnalysisEngine:
         )
         
         # Wait before execution
-        pre_delay = self.settings.sysmon_analysis.analysis_settings.pre_execution_delay
+        pre_delay = self.settings.windows.sysmon_analysis.analysis_settings.pre_execution_delay
         await asyncio.sleep(pre_delay)
         
         # Execute sample
@@ -196,12 +198,12 @@ class SysmonAnalysisEngine:
             logger.warning(f"Sample execution may have failed: {output}")
         
         # Monitor for specified time
-        post_delay = self.settings.sysmon_analysis.analysis_settings.post_execution_delay
+        post_delay = self.settings.windows.sysmon_analysis.analysis_settings.post_execution_delay
         logger.info(f"Monitoring system activity for {post_delay} seconds")
         await asyncio.sleep(post_delay)
-        
+
         # Collect Sysmon events
-        max_events = self.settings.sysmon_analysis.event_collection.max_events
+        max_events = self.settings.windows.sysmon_analysis.event_collection.max_events
         success, events = await self.sysmon_manager.get_sysmon_events(
             vm_name, max_events, vm_config.username, vm_config.password
         )
@@ -542,14 +544,14 @@ class SysmonAnalysisEngine:
             "raw_events_count": len(events),
             "analysis_engine": "sysmon",
             "configuration": {
-                "config_type": self.settings.sysmon_analysis.config_type,
-                "vm_name": self.settings.sysmon_analysis.vm.name,
-                "timeout": self.settings.sysmon_analysis.analysis_settings.post_execution_delay
+                "config_type": self.settings.windows.sysmon_analysis.config_type,
+                "vm_name": self.settings.windows.sysmon_analysis.vm.name,
+                "timeout": self.settings.windows.sysmon_analysis.analysis_settings.post_execution_delay
             }
         }
         
         # Save raw events if configured
-        if self.settings.sysmon_analysis.output_settings.save_raw_events:
+        if self.settings.windows.sysmon_analysis.output_settings.save_raw_events:
             report["raw_events"] = events
         
         return report

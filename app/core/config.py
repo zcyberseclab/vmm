@@ -169,17 +169,6 @@ class Settings(BaseModel):
     task_settings: TaskConfig
     logging: LoggingConfig
 
-    # 兼容性属性，用于向后兼容
-    @property
-    def edr_analysis(self) -> Optional[EDRAnalysisConfig]:
-        """向后兼容的edr_analysis属性"""
-        return self.windows.edr_analysis if self.windows else None
-
-    @property
-    def sysmon_analysis(self) -> Optional[SysmonAnalysisConfig]:
-        """向后兼容的sysmon_analysis属性"""
-        return self.windows.sysmon_analysis if self.windows else None
-
     @classmethod
     def load_from_yaml(cls, config_path: str = "config.yaml") -> "Settings":
         """从YAML文件加载配置"""

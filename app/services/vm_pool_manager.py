@@ -83,8 +83,8 @@ class VMPoolManager:
             
             logger.info("初始化虚拟机资源池...")
             
-            if hasattr(self.settings, 'edr_analysis') and self.settings.edr_analysis:
-                for vm_config in self.settings.edr_analysis.vms:
+            if self.settings.windows and self.settings.windows.edr_analysis:
+                for vm_config in self.settings.windows.edr_analysis.vms:
                     vm_resource = VMResource(
                         vm_name=vm_config.name,
                         vm_config={

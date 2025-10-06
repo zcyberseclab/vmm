@@ -67,8 +67,8 @@ async def submit_analysis(
         
         # 处理虚拟机名称列表
         available_vms = []
-        if hasattr(settings, 'edr_analysis') and settings.edr_analysis:
-            available_vms = [vm.name for vm in settings.edr_analysis.vms]
+        if settings.windows and settings.windows.edr_analysis:
+            available_vms = [vm.name for vm in settings.windows.edr_analysis.vms]
 
         if vm_names:
             vm_list = [name.strip() for name in vm_names.split(",")]
@@ -83,8 +83,6 @@ async def submit_analysis(
             # 如果没有指定VM，使用所有可用的EDR VM
             vm_list = available_vms
             logger.info(f"未指定VM名称，自动使用所有可用VM: {vm_list}")
-            if hasattr(settings, 'edr_analysis') and settings.edr_analysis:
-                vm_list = [vm.name for vm in settings.edr_analysis.vms]
         
         # 保存文件
         file_info = await file_handler.save_uploaded_file(file)

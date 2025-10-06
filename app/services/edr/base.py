@@ -40,8 +40,10 @@ class EDRClient(ABC):
 
         # 获取超时配置
         settings = get_settings()
-        if settings.edr_analysis and settings.edr_analysis.analysis_settings:
-            self.timeouts = settings.edr_analysis.analysis_settings.edr_timeouts
+        if (settings.windows and
+            settings.windows.edr_analysis and
+            settings.windows.edr_analysis.analysis_settings):
+            self.timeouts = settings.windows.edr_analysis.analysis_settings.edr_timeouts
         else:
             # 使用默认超时配置
             from app.core.config import EDRTimeoutSettings

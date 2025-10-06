@@ -80,9 +80,8 @@ def create_app() -> FastAPI:
         logger.info(f"  - 上传目录: {settings.server.upload_dir}")
         logger.info(f"  - 最大文件大小: {settings.server.max_file_size} bytes")
         vm_count = 0
-        edr_config = settings.edr_analysis
-        if edr_config:
-            vm_count = len(edr_config.vms)
+        if settings.windows and settings.windows.edr_analysis:
+            vm_count = len(settings.windows.edr_analysis.vms)
         logger.info(f"  - 虚拟机数量: {vm_count}")
         logger.info(f"  - 最大队列大小: {settings.task_settings.max_queue_size}")
         logger.info(f"  - 并发任务数: {settings.task_settings.concurrent_tasks}")

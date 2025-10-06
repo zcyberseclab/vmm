@@ -23,8 +23,8 @@ class AnalysisEngine:
 
         # 使用新的EDR分析配置
         vm_configs = []
-        if hasattr(self.settings, 'edr_analysis') and self.settings.edr_analysis:
-            for vm_config in self.settings.edr_analysis.vms:
+        if self.settings.windows and self.settings.windows.edr_analysis:
+            for vm_config in self.settings.windows.edr_analysis.vms:
                 vm_configs.append({
                     'name': vm_config.name,
                     'antivirus': vm_config.antivirus,
@@ -194,8 +194,8 @@ class AnalysisEngine:
 
         # 使用同步方法获取VM配置，避免协程问题
         vm_config = None
-        if hasattr(self.settings, 'edr_analysis') and self.settings.edr_analysis:
-            for config in self.settings.edr_analysis.vms:
+        if self.settings.windows and self.settings.windows.edr_analysis:
+            for config in self.settings.windows.edr_analysis.vms:
                 if config.name == vm_name:
                     vm_config = config
                     break
@@ -300,8 +300,8 @@ class AnalysisEngine:
 
                     # 尝试执行简单命令检查系统是否就绪
                     vm_config = None
-                    if hasattr(self.settings, 'edr_analysis') and self.settings.edr_analysis:
-                        for config in self.settings.edr_analysis.vms:
+                    if self.settings.windows and self.settings.windows.edr_analysis:
+                        for config in self.settings.windows.edr_analysis.vms:
                             if config.name == vm_name:
                                 vm_config = config
                                 break
@@ -347,8 +347,8 @@ class AnalysisEngine:
                 return VMConfig(config)
 
         # 回退到原始方法
-        if hasattr(self.settings, 'edr_analysis') and self.settings.edr_analysis:
-            for config in self.settings.edr_analysis.vms:
+        if self.settings.windows and self.settings.windows.edr_analysis:
+            for config in self.settings.windows.edr_analysis.vms:
                 if config.name == vm_name:
                     return config
         return None
@@ -396,8 +396,8 @@ class AnalysisEngine:
 
         # 获取虚拟机配置 - 使用同步方法
         vm_config = None
-        if hasattr(self.settings, 'edr_analysis') and self.settings.edr_analysis:
-            for config in self.settings.edr_analysis.vms:
+        if self.settings.windows and self.settings.windows.edr_analysis:
+            for config in self.settings.windows.edr_analysis.vms:
                 if config.name == vm_name:
                     vm_config = config
                     break
@@ -455,8 +455,8 @@ class AnalysisEngine:
 
         # 获取虚拟机配置 - 使用同步方法
         vm_config = None
-        if hasattr(self.settings, 'edr_analysis') and self.settings.edr_analysis:
-            for config in self.settings.edr_analysis.vms:
+        if self.settings.windows and self.settings.windows.edr_analysis:
+            for config in self.settings.windows.edr_analysis.vms:
                 if config.name == vm_name:
                     vm_config = config
                     break
@@ -628,8 +628,8 @@ class AnalysisEngine:
 
         # 获取虚拟机配置 - 使用同步方法
         vm_config = None
-        if hasattr(self.settings, 'edr_analysis') and self.settings.edr_analysis:
-            for config in self.settings.edr_analysis.vms:
+        if self.settings.windows and self.settings.windows.edr_analysis:
+            for config in self.settings.windows.edr_analysis.vms:
                 if config.name == vm_name:
                     vm_config = config
                     break
