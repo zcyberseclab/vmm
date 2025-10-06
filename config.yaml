@@ -29,125 +29,127 @@ logging:
   max_size: "10MB"                   # Maximum log file size
   backup_count: 5                    # Number of log files to keep
 
-# EDR Sample Analysis Configuration
-edr_analysis:
-  # Virtual Machine Configuration
-  vms:
-    - name: "win10-64-defender"
+# Windows Analysis Configuration
+windows:
+  # EDR Sample Analysis Configuration
+  edr_analysis:
+    # Virtual Machine Configuration
+    vms:
+      - name: "win10-64-defender"
+        antivirus: "defender"
+        username: "vboxuser"
+        password: "123456"
+        baseline_snapshot: "edr-baseline"
+        desktop_path: "C:\\Users\\vboxuser\\Desktop"
+
+
+      - name: "win10-64-mcafee"
+        antivirus: "mcafee"
+        username: "vboxuser"
+        password: "123456"
+        baseline_snapshot: "edr-baseline"
+        desktop_path: "C:\\Users\\vboxuser\\Desktop"
+
+      - name: "win10-64-kaspersky"
+        antivirus: "kaspersky"
+        username: "vboxuser"
+        password: "123456"
+        baseline_snapshot: "edr-baseline"
+        desktop_path: "C:\\Users\\vboxuser\\Desktop"
+
+      - name: "win10-64-avira"
+        antivirus: "avira"
+        username: "vboxuser"
+        password: "123456"
+        baseline_snapshot: "edr-baseline"
+        desktop_path: "C:\\Users\\vboxuser\\Desktop"
+
+      - name: "win10-64-trend"
+        antivirus: "trend"
+        username: "vboxuser"
+        password: "123456"
+        baseline_snapshot: "edr-baseline"
+        desktop_path: "C:\\Users\\vboxuser\\Desktop"
+
+
+    # Analysis Configuration - Further optimized timing settings for performance improvement
+    analysis_settings:
+      initial_check_delay: 2            # Wait time after sample delivery for detection (seconds) - further reduced to 2s
+      runtime_monitor_time: 60          # Monitor time after sample execution (seconds) - reduced from 90s to 60s
+      vm_startup_timeout: 300           # VM startup timeout (seconds) - reduced from 600s to 300s (5 minutes)
+      file_transfer_timeout: 10        # File transfer timeout (seconds)
+
+    # Sample File Configuration
+    sample_settings:
+      max_sample_size: 52428800         # Maximum sample size (50MB)
+      allowed_extensions: [".exe", ".dll", ".bat", ".ps1", ".vbs", ".jar", ".zip"]  # Allowed file extensions
+
+  # Sysmon Analysis Configuration
+  sysmon_analysis:
+    # Whether to enable Sysmon analysis
+    enabled: true
+
+    # Sysmon dedicated virtual machine configuration
+    vm:
+      name: "win10-64-sysmon"
       antivirus: "defender"
       username: "vboxuser"
       password: "123456"
       baseline_snapshot: "edr-baseline"
       desktop_path: "C:\\Users\\vboxuser\\Desktop"
 
+    # Sysmon configuration type
+    config_type: "light"  # "light", "full", "custom"
 
-    - name: "win10-64-mcafee"
-      antivirus: "mcafee"
-      username: "vboxuser"
-      password: "123456"
-      baseline_snapshot: "edr-baseline"
-      desktop_path: "C:\\Users\\vboxuser\\Desktop"
+    # Custom configuration file path (used when config_type is custom)
+    custom_config_path: ""
 
-    - name: "win10-64-kaspersky"
-      antivirus: "kaspersky"
-      username: "vboxuser"
-      password: "123456"
-      baseline_snapshot: "edr-baseline"
-      desktop_path: "C:\\Users\\vboxuser\\Desktop"
+    # Event collection configuration
+    event_collection:
+      max_events: 1000              # Maximum number of events collected per analysis
+      collection_timeout: 30        # Event collection timeout (seconds)
+      # Sysmon Event Type IDs to collect:
+      # 1  - Process creation
+      # 2  - File creation time changed
+      # 3  - Network connection (TCP/UDP)
+      # 4  - Sysmon service state changed
+      # 5  - Process terminated
+      # 6  - Driver loaded
+      # 7  - Image loaded
+      # 8  - CreateRemoteThread (Thread injection)
+      # 9  - RawAccessRead (Raw disk access)
+      # 10 - ProcessAccess (Process memory access)
+      # 11 - FileCreate
+      # 12 - RegistryEvent (Object create and delete)
+      # 13 - RegistryEvent (Value Set) - includes startup entries
+      # 14 - RegistryEvent (Key and Value Rename)
+      # 15 - FileCreateStreamHash (NTFS stream created)
+      # 16 - ServiceConfigurationChange (Service configuration change)
+      # 17 - PipeEvent (Named pipe created)
+      # 18 - PipeEvent (Named pipe connected)
+      # 19 - WmiEvent (WMI filter)
+      # 20 - WmiEvent (WMI consumer)
+      # 21 - WmiEvent (WMI consumer filter)
+      # 22 - DNSEvent (DNS query)
+      # 23 - FileDelete (A file delete was detected)
+      # 24 - ClipboardChange (New content in the clipboard)
+      # 25 - ProcessTampering (Process image change)
+      # 26 - FileDeleteDetected (File delete logged)
+      # 27 - FileBlockExecutable (File block executable)
+      # 28 - FileBlockShredding (File block shredding)
+      event_types: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28]
 
-    - name: "win10-64-avira"
-      antivirus: "avira"
-      username: "vboxuser"
-      password: "123456"
-      baseline_snapshot: "edr-baseline"
-      desktop_path: "C:\\Users\\vboxuser\\Desktop"
+    # Analysis configuration
+    analysis_settings:
+      pre_execution_delay: 3        # Wait time before sample execution (seconds) - reduced from 5s to 3s
+      post_execution_delay: 45      # Wait time after sample execution (seconds) - reduced from 60s to 45s
+      enable_process_tree: true     # Whether to build process tree
+      enable_network_analysis: true # Whether to analyze network connections
+      enable_file_analysis: true    # Whether to analyze file operations
+      enable_registry_analysis: true # Whether to analyze registry operations
 
-    - name: "win10-64-trend"
-      antivirus: "trend"
-      username: "vboxuser"
-      password: "123456"
-      baseline_snapshot: "edr-baseline"
-      desktop_path: "C:\\Users\\vboxuser\\Desktop"
-
-
-  # Analysis Configuration - Further optimized timing settings for performance improvement
-  analysis_settings:
-    initial_check_delay: 2            # Wait time after sample delivery for detection (seconds) - further reduced to 2s
-    runtime_monitor_time: 60          # Monitor time after sample execution (seconds) - reduced from 90s to 60s
-    vm_startup_timeout: 300           # VM startup timeout (seconds) - reduced from 600s to 300s (5 minutes)
-    file_transfer_timeout: 10        # File transfer timeout (seconds)
-
-  # Sample File Configuration
-  sample_settings:
-    max_sample_size: 52428800         # Maximum sample size (50MB)
-    allowed_extensions: [".exe", ".dll", ".bat", ".ps1", ".vbs", ".jar", ".zip"]  # Allowed file extensions
-
-# Sysmon Analysis Configuration
-sysmon_analysis:
-  # Whether to enable Sysmon analysis
-  enabled: true
-
-  # Sysmon dedicated virtual machine configuration
-  vm:
-    name: "win10-64-sysmon"
-    antivirus: "defender"
-    username: "vboxuser"
-    password: "123456"
-    baseline_snapshot: "edr-baseline"
-    desktop_path: "C:\\Users\\vboxuser\\Desktop"
-
-  # Sysmon configuration type
-  config_type: "light"  # "light", "full", "custom"
-
-  # Custom configuration file path (used when config_type is custom)
-  custom_config_path: ""
-
-  # Event collection configuration
-  event_collection:
-    max_events: 1000              # Maximum number of events collected per analysis
-    collection_timeout: 30        # Event collection timeout (seconds)
-    # Sysmon Event Type IDs to collect:
-    # 1  - Process creation
-    # 2  - File creation time changed
-    # 3  - Network connection (TCP/UDP)
-    # 4  - Sysmon service state changed
-    # 5  - Process terminated
-    # 6  - Driver loaded
-    # 7  - Image loaded
-    # 8  - CreateRemoteThread (Thread injection)
-    # 9  - RawAccessRead (Raw disk access)
-    # 10 - ProcessAccess (Process memory access)
-    # 11 - FileCreate
-    # 12 - RegistryEvent (Object create and delete)
-    # 13 - RegistryEvent (Value Set) - includes startup entries
-    # 14 - RegistryEvent (Key and Value Rename)
-    # 15 - FileCreateStreamHash (NTFS stream created)
-    # 16 - ServiceConfigurationChange (Service configuration change)
-    # 17 - PipeEvent (Named pipe created)
-    # 18 - PipeEvent (Named pipe connected)
-    # 19 - WmiEvent (WMI filter)
-    # 20 - WmiEvent (WMI consumer)
-    # 21 - WmiEvent (WMI consumer filter)
-    # 22 - DNSEvent (DNS query)
-    # 23 - FileDelete (A file delete was detected)
-    # 24 - ClipboardChange (New content in the clipboard)
-    # 25 - ProcessTampering (Process image change)
-    # 26 - FileDeleteDetected (File delete logged)
-    # 27 - FileBlockExecutable (File block executable)
-    # 28 - FileBlockShredding (File block shredding)
-    event_types: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28]
-
-  # Analysis configuration
-  analysis_settings:
-    pre_execution_delay: 3        # Wait time before sample execution (seconds) - reduced from 5s to 3s
-    post_execution_delay: 45      # Wait time after sample execution (seconds) - reduced from 60s to 45s
-    enable_process_tree: true     # Whether to build process tree
-    enable_network_analysis: true # Whether to analyze network connections
-    enable_file_analysis: true    # Whether to analyze file operations
-    enable_registry_analysis: true # Whether to analyze registry operations
-
-  # Output configuration
-  output_settings:
-    save_raw_events: true         # Whether to save raw event JSON
-    save_analysis_report: true    # Whether to save analysis report
-    output_format: "json"         # Output format: "json", "xml", "csv"
+    # Output configuration
+    output_settings:
+      save_raw_events: true         # Whether to save raw event JSON
+      save_analysis_report: true    # Whether to save analysis report
+      output_format: "json"         # Output format: "json", "xml", "csv"

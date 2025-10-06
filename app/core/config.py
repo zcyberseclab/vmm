@@ -154,15 +154,31 @@ class SysmonAnalysisConfig(BaseModel):
     output_settings: SysmonOutputSettingsConfig
 
 
+class WindowsConfig(BaseModel):
+    """Windows分析配置"""
+    edr_analysis: Optional[EDRAnalysisConfig] = None
+    sysmon_analysis: Optional[SysmonAnalysisConfig] = None
+
+
 class Settings(BaseModel):
     """应用配置"""
     server: ServerConfig
     virtualization: VirtualizationConfig
     virtual_machines: Optional[List[VirtualMachineConfig]] = []  # 兼容性保留
-    edr_analysis: Optional[EDRAnalysisConfig] = None
-    sysmon_analysis: Optional[SysmonAnalysisConfig] = None
+    windows: Optional[WindowsConfig] = None
     task_settings: TaskConfig
     logging: LoggingConfig
+
+    # 兼容性属性，用于向后兼容
+    @property
+    def edr_analysis(self) -> Optional[EDRAnalysisConfig]:
+        """向后兼容的edr_analysis属性"""
+        return self.windows.edr_analysis if self.windows else None
+
+    @property
+    def sysmon_analysis(self) -> Optional[SysmonAnalysisConfig]:
+        """向后兼容的sysmon_analysis属性"""
+        return self.windows.sysmon_analysis if self.windows else None
 
     @classmethod
     def load_from_yaml(cls, config_path: str = "config.yaml") -> "Settings":
