@@ -1,0 +1,124 @@
+# VirtualBox EDR Sample Analysis System Configuration File
+
+# HTTP Server Configuration
+server:
+  host: "0.0.0.0"                    # Listen address
+  port: 8002                         # Listen port
+  api_key: "edr-analysis-2025"       # API key
+  upload_dir: "./uploads"            # File upload directory
+  max_file_size: 104857600          # Maximum file size (100MB)
+
+# Virtualization Platform Configuration
+virtualization:
+  controller_type: "virtualbox"      # Use VirtualBox
+  vboxmanage_path: "auto"            # VBoxManage path, auto for auto-detection
+  vm_startup_mode: "gui"        # VM startup mode: "gui" or "headless"
+
+# Task Configuration
+task_settings:
+  default_analysis_timeout: 180  # Default analysis timeout (seconds) - further reduced to 180s (3 minutes)
+  max_analysis_timeout: 1800     # Maximum analysis timeout (seconds)
+  cleanup_after_analysis: true   # Whether to auto cleanup after analysis
+  concurrent_tasks: 10           # Number of concurrent tasks - increased from 8 to 10
+  max_queue_size: 100            # Maximum queue size
+
+# Logging Configuration
+logging:
+  level: "DEBUG"                      # Log level (DEBUG, INFO, WARNING, ERROR)
+  file: "./logs/vmm_edr.log"         # Log file path
+  max_size: "10MB"                   # Maximum log file size
+  backup_count: 5                    # Number of log files to keep
+
+# EDR Sample Analysis Configuration
+edr_analysis:
+  # Virtual Machine Configuration
+  vms:
+    - name: "win10-64-defender"
+      antivirus: "defender"
+      username: "vboxuser"
+      password: "123456"
+      baseline_snapshot: "edr-baseline"
+      desktop_path: "C:\\Users\\vboxuser\\Desktop"
+
+
+    - name: "win10-64-mcafee"
+      antivirus: "mcafee"
+      username: "vboxuser"
+      password: "123456"
+      baseline_snapshot: "edr-baseline"
+      desktop_path: "C:\\Users\\vboxuser\\Desktop"
+
+    - name: "win10-64-kaspersky"
+      antivirus: "kaspersky"
+      username: "vboxuser"
+      password: "123456"
+      baseline_snapshot: "edr-baseline"
+      desktop_path: "C:\\Users\\vboxuser\\Desktop"
+
+    - name: "win10-64-avira"
+      antivirus: "avira"
+      username: "vboxuser"
+      password: "123456"
+      baseline_snapshot: "edr-baseline"
+      desktop_path: "C:\\Users\\vboxuser\\Desktop"
+
+    - name: "win10-64-trend"
+      antivirus: "trend"
+      username: "vboxuser"
+      password: "123456"
+      baseline_snapshot: "edr-baseline"
+      desktop_path: "C:\\Users\\vboxuser\\Desktop"
+
+
+  # Analysis Configuration - Further optimized timing settings for performance improvement
+  analysis_settings:
+    initial_check_delay: 2            # Wait time after sample delivery for detection (seconds) - further reduced to 2s
+    runtime_monitor_time: 60          # Monitor time after sample execution (seconds) - reduced from 90s to 60s
+    vm_startup_timeout: 300           # VM startup timeout (seconds) - reduced from 600s to 300s (5 minutes)
+    file_transfer_timeout: 10        # File transfer timeout (seconds)
+
+  # Sample File Configuration
+  sample_settings:
+    max_sample_size: 52428800         # Maximum sample size (50MB)
+    allowed_extensions: [".exe", ".dll", ".bat", ".ps1", ".vbs", ".jar", ".zip"]  # Allowed file extensions
+
+# Sysmon Analysis Configuration
+sysmon_analysis:
+  # Whether to enable Sysmon analysis
+  enabled: true
+
+  # Sysmon dedicated virtual machine configuration
+  vm:
+    name: "win10-64-sysmon"
+    antivirus: "defender"
+    username: "vboxuser"
+    password: "123456"
+    baseline_snapshot: "edr-baseline"
+    desktop_path: "C:\\Users\\vboxuser\\Desktop"
+
+  # Sysmon configuration type
+  config_type: "light"  # "light", "full", "custom"
+
+  # Custom configuration file path (used when config_type is custom)
+  custom_config_path: ""
+
+  # Event collection configuration
+  event_collection:
+    max_events: 1000              # Maximum number of events collected per analysis
+    collection_timeout: 30        # Event collection timeout (seconds)
+    event_types: [1, 3, 5, 7, 8, 10, 11, 12, 13, 22]  # Event type IDs to collect
+
+  # Analysis configuration
+  analysis_settings:
+    pre_execution_delay: 3        # Wait time before sample execution (seconds) - reduced from 5s to 3s
+    post_execution_delay: 45      # Wait time after sample execution (seconds) - reduced from 60s to 45s
+    enable_process_tree: true     # Whether to build process tree
+    enable_network_analysis: true # Whether to analyze network connections
+    enable_file_analysis: true    # Whether to analyze file operations
+    enable_registry_analysis: true # Whether to analyze registry operations
+
+  # Output configuration
+  output_settings:
+    save_raw_events: true         # Whether to save raw event JSON
+    save_analysis_report: true    # Whether to save analysis report
+    output_format: "json"         # Output format: "json", "xml", "csv"
