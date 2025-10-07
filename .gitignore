@@ -275,3 +275,5 @@ secrets.json
 api_keys.json
 credentials.json
 vms
+
+tools/export/

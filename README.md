@@ -1,6 +1,20 @@
-# VirtualBox EDR Malware Analysis System
+# 🛡️ VirtualBox EDR Malware Analysis System
 
-A VirtualBox-based malware analysis platform supporting multiple EDR solutions and parallel processing with Sysmon behavioral analysis.
+[![Release](https://img.shields.io/github/v/release/zcyberseclab/vmm)](https://github.com/zcyberseclab/vmm/releases)
+[![License](https://img.shields.io/github/license/zcyberseclab/vmm)](LICENSE)
+[![Python](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
+[![VirtualBox](https://img.shields.io/badge/VirtualBox-7.0+-orange.svg)](https://www.virtualbox.org/)
+
+A comprehensive VirtualBox-based malware analysis platform supporting multiple EDR solutions and parallel processing with Sysmon behavioral analysis. This system provides automated malware analysis capabilities with real-time monitoring, intelligent scheduling, and detailed behavioral analysis.
+
+## 🌟 Key Features
+
+- **🔍 Multi-EDR Analysis**: Support for 5 mainstream EDR solutions (Windows Defender, McAfee, Kaspersky, Avira, Trend Micro)
+- **⚡ Parallel Processing**: Simultaneous analysis with 40%+ time savings and 1.7x speed improvement
+- **📊 Behavioral Analysis**: Comprehensive Sysmon-based behavioral monitoring and process tree construction
+- **🚀 RESTful API**: Complete API interface for integration and automation
+- **📈 Real-time Monitoring**: Performance tracking, task status, and system health monitoring
+- **🔧 Intelligent Management**: Automatic VM snapshot management and resource optimization
 
 ## 🏗️ System Architecture
 
@@ -94,11 +108,28 @@ A VirtualBox-based malware analysis platform supporting multiple EDR solutions a
 - At least 16GB RAM
 - 100GB+ available disk space
 
-### Installation Steps
+### 📦 Installation
+
+#### Option 1: Download Release (Recommended)
+
+1. **Download Latest Release**
+   ```bash
+   # Download from GitHub releases
+   wget https://github.com/zcyberseclab/vmm/releases/latest/download/vmm-latest.tar.gz
+   tar -xzf vmm-latest.tar.gz
+   cd vmm-*
+   ```
+
+2. **Install Dependencies**
+   ```bash
+   pip install -r requirements.txt
+   ```
+
+#### Option 2: Clone from Source
 
 1. **Clone the Repository**
    ```bash
-   git clone <repository-url>
+   git clone https://github.com/zcyberseclab/vmm.git
    cd vmm
    ```
 
@@ -107,55 +138,71 @@ A VirtualBox-based malware analysis platform supporting multiple EDR solutions a
    pip install -r requirements.txt
    ```
 
-3. **Configure Windows Defender Exclusions**
-   ```powershell
-   Add-MpPreference -ExclusionPath "path to upload test samples"
+### ⚙️ Configuration
+
+1. **Copy Configuration Template**
+   ```bash
+   cp config.yaml.example config.yaml
    ```
 
-4. **Prepare Virtual Machines**
-   - Create 6 Windows 10 virtual machines
-   - Install corresponding EDR software
-   - Create `edr-baseline` snapshots
+2. **Configure Windows Defender Exclusions**
+   ```powershell
+   Add-MpPreference -ExclusionPath "C:\path\to\vmm\uploads"
+   ```
 
-5. **Modify Configuration**
+3. **Prepare Virtual Machines**
+   - Create 6 Windows 10 virtual machines
+   - Install corresponding EDR software on each VM
+   - Create `edr-baseline` snapshots for each VM
+
+4. **Edit Configuration File**
    ```bash
    # Edit config.yaml file
-   # Configure VM names, usernames, passwords, etc.
+   # Configure VM names, usernames, passwords, API keys, etc.
    ```
 
-### Start the Service
+### 🚀 Start the Service
 
 ```bash
-# Start development server
-python -m uvicorn main:app --host 0.0.0.0 --port 8000
-
-# Or use the port from config file
+# Start production server
 python main.py
+
+# Or start development server with auto-reload
+python -m uvicorn main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
-### API Usage Examples
+The service will be available at `http://localhost:8000` (or the port specified in your config.yaml).
+
+### 📡 API Usage Examples
 
 1. **Submit Sample for Analysis**
    ```bash
-   curl -X POST "http://localhost:8002/api/analyze" \
+   curl -X POST "http://localhost:8000/api/analyze" \
+        -H "X-API-Key: your-api-key" \
         -F "file=@malware.exe" \
         -F "filename=test_malware.exe"
    ```
 
 2. **Query Task Status**
    ```bash
-   curl "http://localhost:8002/api/task/{task_id}"
+   curl -H "X-API-Key: your-api-key" \
+        "http://localhost:8000/api/task/{task_id}"
    ```
 
 3. **Get Analysis Results**
    ```bash
-   curl "http://localhost:8002/api/result/{task_id}"
+   curl -H "X-API-Key: your-api-key" \
+        "http://localhost:8000/api/result/{task_id}"
    ```
 
 4. **System Health Check**
    ```bash
-   curl "http://localhost:8002/api/health"
+   curl "http://localhost:8000/api/health"
    ```
+
+5. **Interactive API Documentation**
+   - Swagger UI: `http://localhost:8000/docs`
+   - ReDoc: `http://localhost:8000/redoc`
 
 ## 📈 Performance Statistics
 
@@ -226,10 +273,71 @@ Please refer to the comments in the `config.yaml` file for detailed configuratio
 4. **Log Monitoring**: Monitor log file sizes and clean up old logs regularly
 5. **Security Protection**: Ensure the host system has appropriate security protection measures
 
+## 🤝 Contributing
+
+We welcome contributions! Please see our [Contributing Guidelines](CONTRIBUTING.md) for details.
+
+### Development Setup
+
+1. Fork the repository
+2. Create a feature branch: `git checkout -b feature/amazing-feature`
+3. Make your changes and add tests
+4. Commit your changes: `git commit -m 'Add amazing feature'`
+5. Push to the branch: `git push origin feature/amazing-feature`
+6. Open a Pull Request
+
 ## 🐛 Troubleshooting
 
-For common issues and solutions, please check the project Wiki or submit an Issue.
+### Common Issues
+
+1. **VirtualBox not found**
+   - Ensure VirtualBox is installed and `VBoxManage` is in your PATH
+   - On Windows, check `C:\Program Files\Oracle\VirtualBox\`
+
+2. **VM startup timeout**
+   - Increase `vm_startup_timeout` in config.yaml
+   - Check VM has sufficient resources allocated
+
+3. **API key authentication failed**
+   - Verify the API key in config.yaml matches the X-API-Key header
+   - Check for typos in the API key
+
+4. **File upload fails**
+   - Check file size limits in config.yaml
+   - Ensure upload directory has write permissions
+
+For more issues and solutions, please check the [Issues](https://github.com/zcyberseclab/vmm/issues) page.
+
+## 📚 Documentation
+
+- [API Documentation](docs/API.md)
+- [Configuration Guide](docs/CONFIGURATION.md)
+- [VM Setup Guide](docs/VM_SETUP.md)
+- [Troubleshooting Guide](docs/TROUBLESHOOTING.md)
+
+## 🔗 Related Projects
+
+- [Sysmon](https://docs.microsoft.com/en-us/sysinternals/downloads/sysmon) - System Monitor for Windows
+- [VirtualBox](https://www.virtualbox.org/) - Virtualization platform
+- [FastAPI](https://fastapi.tiangolo.com/) - Modern web framework for building APIs
 
 ## 📄 License
 
-This project is licensed under the MIT License. See the LICENSE file for details.
+This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for details.
+
+## 🙏 Acknowledgments
+
+- Microsoft Sysinternals team for Sysmon
+- Oracle for VirtualBox
+- FastAPI team for the excellent web framework
+- All contributors who helped improve this project
+
+## 📞 Support
+
+- 📧 Email: [support@zcyberseclab.com](mailto:support@zcyberseclab.com)
+- 🐛 Issues: [GitHub Issues](https://github.com/zcyberseclab/vmm/issues)
+- 💬 Discussions: [GitHub Discussions](https://github.com/zcyberseclab/vmm/discussions)
+
+---
+
+⭐ If you find this project useful, please consider giving it a star on GitHub!

@@ -1,0 +1,130 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+
+    - name: Extract version from tag
+      id: get_version
+      run: |
+        VERSION=${GITHUB_REF#refs/tags/v}
+        echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
+        echo "TAG_NAME=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+
+    - name: Update version in files
+      run: |
+        VERSION=${{ steps.get_version.outputs.VERSION }}
+        # Update version in app/__init__.py
+        sed -i "s/__version__ = \".*\"/__version__ = \"$VERSION\"/" app/__init__.py
+        # Update version in main.py
+        sed -i "s/version=\".*\"/version=\"$VERSION\"/" main.py
+
+    - name: Create source distribution
+      run: |
+        # Create a clean source archive
+        mkdir -p dist
+        git archive --format=tar.gz --prefix=vmm-${{ steps.get_version.outputs.VERSION }}/ HEAD > dist/vmm-${{ steps.get_version.outputs.VERSION }}.tar.gz
+        
+        # Create zip archive
+        git archive --format=zip --prefix=vmm-${{ steps.get_version.outputs.VERSION }}/ HEAD > dist/vmm-${{ steps.get_version.outputs.VERSION }}.zip
+
+    - name: Generate changelog
+      id: changelog
+      run: |
+        # Get the previous tag
+        PREV_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
+        
+        if [ -n "$PREV_TAG" ]; then
+          echo "## Changes since $PREV_TAG" > CHANGELOG.md
+          echo "" >> CHANGELOG.md
+          git log --pretty=format:"- %s (%h)" $PREV_TAG..HEAD >> CHANGELOG.md
+        else
+          echo "## Initial Release" > CHANGELOG.md
+          echo "" >> CHANGELOG.md
+          echo "- Initial release of VirtualBox EDR Malware Analysis System" >> CHANGELOG.md
+        fi
+        
+        echo "CHANGELOG<<EOF" >> $GITHUB_OUTPUT
+        cat CHANGELOG.md >> $GITHUB_OUTPUT
+        echo "EOF" >> $GITHUB_OUTPUT
+
+    - name: Create Release
+      uses: softprops/action-gh-release@v1
+      with:
+        tag_name: ${{ steps.get_version.outputs.TAG_NAME }}
+        name: Release ${{ steps.get_version.outputs.TAG_NAME }}
+        body: |
+          # VirtualBox EDR Malware Analysis System ${{ steps.get_version.outputs.VERSION }}
+          
+          ## 🚀 Features
+          - Multi-EDR malware analysis platform
+          - Parallel processing with Sysmon behavioral analysis
+          - Support for Windows Defender, McAfee, Kaspersky, Avira, and Trend Micro
+          - RESTful API interface
+          - Real-time performance monitoring
+          
+          ## 📦 Downloads
+          - **Source Code (tar.gz)**: `vmm-${{ steps.get_version.outputs.VERSION }}.tar.gz`
+          - **Source Code (zip)**: `vmm-${{ steps.get_version.outputs.VERSION }}.zip`
+          
+          ## 📋 System Requirements
+          - Windows 10/11 (Recommended)
+          - Oracle VirtualBox 7.0+
+          - Python 3.11+
+          - At least 16GB RAM
+          - 100GB+ available disk space
+          
+          ## 🔧 Quick Start
+          ```bash
+          # Download and extract
+          wget https://github.com/${{ github.repository }}/archive/${{ steps.get_version.outputs.TAG_NAME }}.tar.gz
+          tar -xzf ${{ steps.get_version.outputs.TAG_NAME }}.tar.gz
+          cd vmm-${{ steps.get_version.outputs.VERSION }}
+          
+          # Install dependencies
+          pip install -r requirements.txt
+          
+          # Configure and start
+          cp config.yaml.example config.yaml
+          # Edit config.yaml with your settings
+          python main.py
+          ```
+          
+          ${{ steps.changelog.outputs.CHANGELOG }}
+          
+          ## 📚 Documentation
+          For detailed installation and configuration instructions, please see the [README.md](README.md).
+          
+          ## 🐛 Bug Reports
+          If you encounter any issues, please report them in the [Issues](https://github.com/${{ github.repository }}/issues) section.
+        files: |
+          dist/vmm-${{ steps.get_version.outputs.VERSION }}.tar.gz
+          dist/vmm-${{ steps.get_version.outputs.VERSION }}.zip
+        draft: false
+        prerelease: false
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Update latest tag
+      run: |
+        git tag -f latest
+        git push origin latest --force

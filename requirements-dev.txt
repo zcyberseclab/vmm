@@ -1,0 +1,18 @@
+# Development dependencies
+-r requirements.txt
+
+# Testing
+pytest>=7.0
+pytest-cov>=4.0
+pytest-asyncio>=0.21.0
+httpx>=0.25.0
+
+# Code quality
+black>=23.0
+isort>=5.0
+flake8>=6.0
+bandit>=1.7
+safety>=2.0
+
+# Development tools
+pre-commit>=3.0
