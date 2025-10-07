@@ -12,7 +12,7 @@ from app.utils.performance_monitor import get_performance_monitor
 
 
 class SimpleTaskManager:
-    """简化的任务管理器（使用内存队列）"""
+    """Simplified task manager (using memory queue)"""
 
     def __init__(self):
         self.settings = get_settings()
@@ -23,16 +23,16 @@ class SimpleTaskManager:
         self.is_running = False
 
     async def start(self):
-        """启动任务管理器"""
+        """Start task manager"""
         if self.is_running:
             return
 
         self.is_running = True
         self.processor_task = asyncio.create_task(self._process_tasks())
-        logger.info("任务管理器已启动")
+        logger.info("Task manager started")
 
     async def stop(self):
-        """停止任务管理器"""
+        """Stop task manager"""
         if not self.is_running:
             return
 
@@ -51,7 +51,7 @@ class SimpleTaskManager:
             except asyncio.CancelledError:
                 pass
 
-        logger.info("任务管理器已停止")
+        logger.info("Task manager stopped")
 
     async def submit_task(self, task: AnalysisTask) -> bool:
         """
@@ -149,8 +149,8 @@ class SimpleTaskManager:
             return False
 
     async def _process_tasks(self):
-        """处理任务队列"""
-        logger.info("任务处理器已启动")
+        """Process task queue"""
+        logger.info("Task processor started")
 
         while self.is_running:
             try:
@@ -190,7 +190,7 @@ class SimpleTaskManager:
                 logger.info(f"任务开始处理: {task_id}")
 
             except Exception as e:
-                logger.error(f"任务处理器异常: {str(e)}")
+                logger.error(f"Task processor exception: {str(e)}")
                 await asyncio.sleep(1)
     
     def _on_task_completed(self, task_id: str, future: asyncio.Future):
@@ -604,5 +604,5 @@ class SimpleTaskManager:
             logger.error(f"清理旧任务失败: {str(e)}")
 
 
-# 全局任务管理器实例
+# Global task manager instance
 task_manager = SimpleTaskManager()

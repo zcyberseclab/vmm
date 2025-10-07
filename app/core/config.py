@@ -1,7 +1,8 @@
 """
-配置管理模块
+Configuration management module
 """
 import os
+import sys
 import yaml
 from typing import List, Dict, Any, Optional
 from pydantic import BaseModel, Field
@@ -17,7 +18,7 @@ class ServerConfig(BaseModel):
 
 
 class VirtualizationConfig(BaseModel):
-    """虚拟化平台配置"""
+    
     controller_type: str = "virtualbox"
     vboxmanage_path: str = "auto"
     vm_startup_mode: str = "headless"  # gui 或 headless
@@ -171,14 +172,50 @@ class Settings(BaseModel):
 
     @classmethod
     def load_from_yaml(cls, config_path: str = "config.yaml") -> "Settings":
-        """从YAML文件加载配置"""
-        if not os.path.exists(config_path):
-            raise FileNotFoundError(f"配置文件不存在: {config_path}")
-        
-        with open(config_path, 'r', encoding='utf-8') as f:
+        """Load configuration from YAML file"""
+        # Try to find config file in multiple locations
+        possible_paths = [
+            config_path,
+            os.path.join(os.path.dirname(__file__), "..", "..", "config.yaml"),
+ 
+        ]
+
+        # If running from PyInstaller, also check the executable directory
+        if getattr(sys, 'frozen', False):
+            exe_dir = os.path.dirname(sys.executable)
+            possible_paths.extend([
+                os.path.join(exe_dir, "config.yaml"),
+                os.path.join(exe_dir, "config.yaml.example"),
+            ])
+
+        config_file = None
+        for path in possible_paths:
+            if os.path.exists(path):
+                config_file = path
+                break
+
+        if config_file is None:
+            # Create default configuration if no config file found
+            print("⚠️  No configuration file found, using default settings")
+            print("💡 Create config.yaml from config.yaml.example for custom settings")
+            return cls.create_default()
+
+        print(f"📄 Loading configuration from: {config_file}")
+        with open(config_file, 'r', encoding='utf-8') as f:
             config_data = yaml.safe_load(f)
-        
+
         return cls(**config_data)
+
+    @classmethod
+    def create_default(cls) -> "Settings":
+        """Create default configuration"""
+        return cls(
+            server=ServerConfig(),
+            vm=VMConfig(),
+            analysis=AnalysisConfig(),
+            task_settings=TaskConfig(),
+            logging=LoggingConfig()
+        )
 
 
 # 全局配置实例

@@ -1,20 +1,22 @@
-# 🛡️ VirtualBox EDR Malware Analysis System
+# 🛡️ Malware Sandbox Analysis System
 
 [![Release](https://img.shields.io/github/v/release/zcyberseclab/vmm)](https://github.com/zcyberseclab/vmm/releases)
 [![License](https://img.shields.io/github/license/zcyberseclab/vmm)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
-[![VirtualBox](https://img.shields.io/badge/VirtualBox-7.0+-orange.svg)](https://www.virtualbox.org/)
+[![Sandbox](https://img.shields.io/badge/Sandbox-Analysis-green.svg)](https://github.com/zcyberseclab/vmm)
 
-A comprehensive VirtualBox-based malware analysis platform supporting multiple EDR solutions and parallel processing with Sysmon behavioral analysis. This system provides automated malware analysis capabilities with real-time monitoring, intelligent scheduling, and detailed behavioral analysis.
+A comprehensive automated malware sandbox analysis platform with parallel processing and behavioral monitoring capabilities. This system provides intelligent malware analysis with real-time monitoring, advanced scheduling, and detailed behavioral insights for security research and threat detection.
 
 ## 🌟 Key Features
 
-- **🔍 Multi-EDR Analysis**: Support for 5 mainstream EDR solutions (Windows Defender, McAfee, Kaspersky, Avira, Trend Micro)
+- **🔍 Multi-Engine Analysis**: Support for multiple security analysis engines with comprehensive threat detection
 - **⚡ Parallel Processing**: Simultaneous analysis with 40%+ time savings and 1.7x speed improvement
-- **📊 Behavioral Analysis**: Comprehensive Sysmon-based behavioral monitoring and process tree construction
+- **📊 Behavioral Analysis**: Deep behavioral monitoring with process tree construction and system activity tracking
 - **🚀 RESTful API**: Complete API interface for integration and automation
 - **📈 Real-time Monitoring**: Performance tracking, task status, and system health monitoring
-- **🔧 Intelligent Management**: Automatic VM snapshot management and resource optimization
+- **🔧 Intelligent Management**: Automatic sandbox management and resource optimization
+- **🛡️ Isolated Environment**: Secure sandbox execution with snapshot-based recovery
+- **📋 Detailed Reports**: Comprehensive analysis reports with behavioral insights and threat indicators
 
 ## 🏗️ System Architecture
 
@@ -32,19 +34,19 @@ A comprehensive VirtualBox-based malware analysis platform supporting multiple E
 └─────────────┬───────────────────────┬───────────────────────┘
               │                       │
     ┌─────────┴─────────┐   ┌─────────┴─────────┐
-    │  Sysmon Analysis  │   │   EDR Analysis    │
-    │ (Behavior Monitor)│   │ (5 Parallel VMs)  │
+    │ Behavioral Engine │   │ Security Engines  │
+    │ (Activity Monitor)│   │ (5 Parallel VMs)  │
     └─────────┬─────────┘   └─────────┬─────────┘
               │                       │
     ┌─────────┴─────────┐   ┌─────────┴─────────┐
-    │ win10-64-sysmon   │   │ VM Pool Manager   │
+    │ Sandbox Monitor   │   │ Analysis Pool     │
     │                   │   │ ┌───────────────┐ │
-    └───────────────────┘   │ │ win10-64-*    │ │
-                            │ │ - defender    │ │
-                            │ │ - mcafee      │ │
-                            │ │ - kaspersky   │ │
-                            │ │ - avira       │ │
-                            │ │ - trend       │ │
+    └───────────────────┘   │ │ Sandbox VMs   │ │
+                            │ │ - engine-1    │ │
+                            │ │ - engine-2    │ │
+                            │ │ - engine-3    │ │
+                            │ │ - engine-4    │ │
+                            │ │ - engine-5    │ │
                             │ └───────────────┘ │
                             └───────────────────┘
 ```
@@ -52,7 +54,7 @@ A comprehensive VirtualBox-based malware analysis platform supporting multiple E
 ### Technology Stack
 
 - **Backend Framework**: FastAPI + Python 3.11
-- **Virtualization Platform**: Oracle VirtualBox
+- **Sandbox Environment**: Isolated virtual machine execution
 - **Async Processing**: asyncio + Parallel Task Queue
 - **Performance Monitoring**: psutil + Custom Performance Monitor
 - **Logging System**: loguru
@@ -62,24 +64,25 @@ A comprehensive VirtualBox-based malware analysis platform supporting multiple E
 
 ### 🔍 Malware Analysis
 
-- **Multi-Engine Detection**: Support for 5 mainstream EDR solutions
-  - Windows Defender
-  - McAfee
-  - Kaspersky
-  - Avira
-  - Trend Micro
+- **Multi-Engine Detection**: Support for multiple security analysis engines
+  - Static analysis capabilities
+  - Dynamic behavior analysis
+  - Signature-based detection
+  - Heuristic analysis
+  - Machine learning detection
 
-- **Behavioral Analysis**: Detailed behavioral monitoring based on Sysmon
+- **Behavioral Analysis**: Comprehensive behavioral monitoring and tracking
   - Process creation and termination
   - File system operations
   - Network connections
   - Registry modifications
   - Process tree construction
+  - System call monitoring
 
 ### ⚡ Parallel Processing Architecture
 
-- **Intelligent Scheduling**: Sysmon and EDR analysis run simultaneously
-- **Resource Pooling**: Dynamic VM resource allocation and management
+- **Intelligent Scheduling**: Multiple analysis engines run simultaneously
+- **Resource Pooling**: Dynamic sandbox resource allocation and management
 - **Performance Optimization**: 40%+ time savings, 1.7x speed improvement
 - **Error Isolation**: Single analysis failure doesn't affect other analyses
 
@@ -87,15 +90,16 @@ A comprehensive VirtualBox-based malware analysis platform supporting multiple E
 
 - **Performance Monitoring**: Real-time tracking of CPU, memory, disk usage
 - **Task Status**: Detailed task execution status and progress
-- **Alert Statistics**: Real-time alert count and type statistics
-- **System Health**: VM status and resource usage monitoring
+- **Threat Detection**: Real-time threat detection and classification
+- **System Health**: Sandbox status and resource usage monitoring
 
 ### 🔧 Advanced Features
 
 - **Intelligent File Processing**: Automatic file type detection and validation
-- **Snapshot Management**: Automatic VM snapshot restoration and cleanup
+- **Sandbox Management**: Automatic snapshot restoration and cleanup
 - **Time Unification**: All timestamps unified to local time format
-- **Alert Deduplication**: Intelligent alert deduplication and aggregation
+- **Threat Intelligence**: Intelligent threat classification and reporting
+- **Report Generation**: Comprehensive analysis reports with actionable insights
 - **API Interface**: Complete RESTful API
 
 ## 🚀 Usage
@@ -103,7 +107,7 @@ A comprehensive VirtualBox-based malware analysis platform supporting multiple E
 ### System Requirements
 
 - Windows 10/11 (Recommended)
-- Oracle VirtualBox 7.0+
+- Virtualization platform (for sandbox environment)
 - Python 3.11+
 - At least 16GB RAM
 - 100GB+ available disk space
@@ -145,31 +149,33 @@ A comprehensive VirtualBox-based malware analysis platform supporting multiple E
    cp config.yaml.example config.yaml
    ```
 
-2. **Configure Windows Defender Exclusions**
+2. **Configure Security Exclusions**
    ```powershell
+   # Add exclusions for analysis directory
    Add-MpPreference -ExclusionPath "C:\path\to\vmm\uploads"
    ```
 
-3. **Prepare Virtual Machines**
-   - Create 6 Windows 10 virtual machines
-   - Install corresponding EDR software on each VM
-   - Create `edr-baseline` snapshots for each VM
+3. **Prepare Sandbox Environment**
+   - Create multiple Windows sandbox virtual machines
+   - Install security analysis engines on each VM
+   - Create baseline snapshots for each sandbox
 
 4. **Edit Configuration File**
    ```bash
    # Edit config.yaml file
-   # Configure VM names, usernames, passwords, API keys, etc.
+   # Configure sandbox names, credentials, analysis settings, etc.
    ```
 
 ### 🚀 Start the Service
 
 ```bash
 # Start production server
-python main.py
+uvicorn main:app --host 0.0.0.0 --port 8000
 
 # Or start development server with auto-reload
-python -m uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+python main.py
 ```
+
 
 The service will be available at `http://localhost:8000` (or the port specified in your config.yaml).
 
@@ -212,38 +218,38 @@ Performance statistics based on actual test data:
 
 | Metric | Value | Description |
 |--------|-------|-------------|
-| **Parallel Analysis Time** | 390.7 seconds | 5 EDR + Sysmon simultaneous analysis |
+| **Parallel Analysis Time** | 390.7 seconds | Multi-engine simultaneous analysis |
 | **Performance Improvement** | 40.2% | Time savings compared to serial analysis |
 | **Speed Multiplier** | 1.7x | Parallel vs serial analysis speed |
 | **CPU Usage** | 7.5% → 11.2% | CPU usage change during analysis |
 | **Memory Usage** | 28.2% → 29.8% | Memory usage change during analysis |
-| **Event Collection** | 530 events | Single Sysmon event count |
-| **Alert Generation** | 5 alerts | 5 EDR engine detection results |
+| **Event Collection** | 530+ events | Behavioral monitoring event count |
+| **Threat Detection** | 5+ engines | Multiple security engine results |
 
-### Virtual Machine Startup Times
+### Sandbox Startup Times
 
-Startup and ready time statistics for each virtual machine:
+Startup and ready time statistics for each sandbox environment:
 
-| Virtual Machine | Startup Time | System Ready Time | Total |
+| Sandbox Environment | Startup Time | System Ready Time | Total |
 |--------|----------|--------------|------|
-| **win10-64-sysmon** | ~31 sec | ~5 sec | ~36 sec |
-| **win10-64-defender** | ~44 sec | ~30 sec | ~74 sec |
-| **win10-64-mcafee** | ~28 sec | ~25 sec | ~53 sec |
-| **win10-64-kaspersky** | ~33 sec | ~28 sec | ~61 sec |
-| **win10-64-avira** | ~51 sec | ~32 sec | ~83 sec |
-| **win10-64-trend** | ~64 sec | ~35 sec | ~99 sec |
+| **Behavioral Monitor** | ~31 sec | ~5 sec | ~36 sec |
+| **Security Engine 1** | ~44 sec | ~30 sec | ~74 sec |
+| **Security Engine 2** | ~28 sec | ~25 sec | ~53 sec |
+| **Security Engine 3** | ~33 sec | ~28 sec | ~61 sec |
+| **Security Engine 4** | ~51 sec | ~32 sec | ~83 sec |
+| **Security Engine 5** | ~64 sec | ~35 sec | ~99 sec |
 
 ### Analysis Phase Duration
 
 | Phase | Average Duration | Description |
 |-------|------------------|-------------|
-| **VM Startup** | 30-100 sec | Varies by different EDR software |
-| **Sample Upload** | 2-5 sec | File transfer to virtual machine |
+| **Sandbox Startup** | 30-100 sec | Varies by different security engines |
+| **Sample Upload** | 2-5 sec | File transfer to sandbox environment |
 | **Sample Execution** | 5-10 sec | Malware execution time |
-| **EDR Detection** | 10-25 sec | Wait for EDR detection and quarantine |
-| **Log Collection** | 5-15 sec | Collect EDR alert logs |
-| **VM Cleanup** | 10-20 sec | Snapshot restoration and resource cleanup |
-| **Sysmon Analysis** | 60-90 sec | Event collection and analysis |
+| **Threat Detection** | 10-25 sec | Wait for security engine detection |
+| **Log Collection** | 5-15 sec | Collect analysis logs and reports |
+| **Sandbox Cleanup** | 10-20 sec | Snapshot restoration and resource cleanup |
+| **Behavioral Analysis** | 60-90 sec | Event collection and behavioral analysis |
 
 ### Concurrent Processing Capability
 
@@ -251,7 +257,7 @@ Startup and ready time statistics for each virtual machine:
 |--------------------|---------------|---------------|-------------|
 | **Concurrent Tasks** | 10 | Configurable | Simultaneous analysis tasks |
 | **Queue Size** | 100 | Configurable | Maximum queued task count |
-| **VM Pool Size** | 6 VMs | Scalable | Available virtual machines |
+| **Sandbox Pool Size** | 6 Sandboxes | Scalable | Available sandbox environments |
 | **File Size Limit** | 100MB | Configurable | Single sample file size |
 
 ## 🔧 Configuration
@@ -259,17 +265,17 @@ Startup and ready time statistics for each virtual machine:
 The main configuration file `config.yaml` contains the following sections:
 
 - **Server Configuration**: Port, upload directory, file size limits
-- **Virtual Machine Configuration**: VM names, credentials, snapshot names
+- **Sandbox Configuration**: Sandbox names, credentials, snapshot names
 - **Analysis Configuration**: Timeout settings, monitoring time, concurrency limits
-- **Sysmon Configuration**: Event types, collection count, analysis options
+- **Behavioral Monitoring**: Event types, collection count, analysis options
 
 Please refer to the comments in the `config.yaml` file for detailed configuration.
 
 ## 📝 Important Notes
 
-1. **Resource Requirements**: The system needs sufficient CPU and memory to run multiple virtual machines simultaneously
+1. **Resource Requirements**: The system needs sufficient CPU and memory to run multiple sandbox environments simultaneously
 2. **Network Isolation**: Recommended to run in an isolated network environment to prevent malware propagation
-3. **Snapshot Management**: Regularly update virtual machine snapshots to keep the system clean
+3. **Snapshot Management**: Regularly update sandbox snapshots to keep the analysis environment clean
 4. **Log Monitoring**: Monitor log file sizes and clean up old logs regularly
 5. **Security Protection**: Ensure the host system has appropriate security protection measures
 
@@ -290,13 +296,13 @@ We welcome contributions! Please see our [Contributing Guidelines](CONTRIBUTING.
 
 ### Common Issues
 
-1. **VirtualBox not found**
-   - Ensure VirtualBox is installed and `VBoxManage` is in your PATH
-   - On Windows, check `C:\Program Files\Oracle\VirtualBox\`
+1. **Virtualization platform not found**
+   - Ensure virtualization software is properly installed
+   - Check that virtualization commands are accessible from PATH
 
-2. **VM startup timeout**
+2. **Sandbox startup timeout**
    - Increase `vm_startup_timeout` in config.yaml
-   - Check VM has sufficient resources allocated
+   - Check sandbox environments have sufficient resources allocated
 
 3. **API key authentication failed**
    - Verify the API key in config.yaml matches the X-API-Key header
@@ -312,13 +318,13 @@ For more issues and solutions, please check the [Issues](https://github.com/zcyb
 
 - [API Documentation](docs/API.md)
 - [Configuration Guide](docs/CONFIGURATION.md)
-- [VM Setup Guide](docs/VM_SETUP.md)
+- [Sandbox Setup Guide](docs/SANDBOX_SETUP.md)
 - [Troubleshooting Guide](docs/TROUBLESHOOTING.md)
 
 ## 🔗 Related Projects
 
-- [Sysmon](https://docs.microsoft.com/en-us/sysinternals/downloads/sysmon) - System Monitor for Windows
-- [VirtualBox](https://www.virtualbox.org/) - Virtualization platform
+- [System Monitor Tools](https://docs.microsoft.com/en-us/sysinternals/) - System monitoring and analysis tools
+- [Virtualization Platforms](https://www.virtualbox.org/) - Sandbox virtualization solutions
 - [FastAPI](https://fastapi.tiangolo.com/) - Modern web framework for building APIs
 
 ## 📄 License
@@ -327,9 +333,10 @@ This project is licensed under the MIT License. See the [LICENSE](LICENSE) file 
 
 ## 🙏 Acknowledgments
 
-- Microsoft Sysinternals team for Sysmon
-- Oracle for VirtualBox
+- Microsoft Sysinternals team for system monitoring tools
+- Virtualization platform developers for sandbox technologies
 - FastAPI team for the excellent web framework
+- Security research community for threat analysis methodologies
 - All contributors who helped improve this project
 
 ## 📞 Support

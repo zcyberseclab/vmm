@@ -163,7 +163,9 @@ class SysmonManager:
                     import json
                     try:
                         service_info = json.loads(output)
-                        service_status = service_info.get("Status", "").lower()
+                        # Ensure status is converted to string before calling lower()
+                        raw_status = service_info.get("Status", "")
+                        service_status = str(raw_status).lower() if raw_status else ""
                         service_found_name = service_info.get("Name", service_name)
 
                         if service_status == "running":

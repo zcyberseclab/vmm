@@ -1,10 +1,11 @@
 import os
 import sys
+from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from loguru import logger
 
-# 添加项目根目录到Python路径
+# Add project root directory to Python path
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 from app.core.config import get_settings
@@ -13,14 +14,53 @@ from app.api.middleware import APIKeyMiddleware, LoggingMiddleware
 from app.services.task_manager import task_manager
 
 
-def create_app() -> FastAPI:
-    """创建FastAPI应用"""
-    
-    # 加载配置
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Application lifespan manager"""
+    # Startup
+    logger.info("Malware analysis system starting...")
+
+    # Load configuration
     settings = get_settings()
-    
-    # 配置日志
-    logger.remove()  # 移除默认处理器
+
+    # Create necessary directories
+    os.makedirs(settings.server.upload_dir, exist_ok=True)
+    os.makedirs(os.path.dirname(settings.logging.file), exist_ok=True)
+
+    # Start task manager
+    await task_manager.start()
+
+    logger.info(f"Server configuration:")
+    logger.info(f"  - Listen address: {settings.server.host}:{settings.server.port}")
+    logger.info(f"  - Upload directory: {settings.server.upload_dir}")
+    logger.info(f"  - Max file size: {settings.server.max_file_size} bytes")
+    vm_count = 0
+    if settings.windows and settings.windows.edr_analysis:
+        vm_count = len(settings.windows.edr_analysis.vms)
+    logger.info(f"  - Virtual machines: {vm_count}")
+    logger.info(f"  - Max queue size: {settings.task_settings.max_queue_size}")
+    logger.info(f"  - Concurrent tasks: {settings.task_settings.concurrent_tasks}")
+    logger.info("System startup completed!")
+
+    yield
+
+    # Shutdown
+    logger.info("Malware analysis system shutting down...")
+
+    # Stop task manager
+    await task_manager.stop()
+
+    logger.info("System shutdown completed")
+
+
+def create_app() -> FastAPI:
+    """Create FastAPI application"""
+
+    # Load configuration
+    settings = get_settings()
+
+    # Configure logging
+    logger.remove()  # Remove default handler
     logger.add(
         sys.stdout,
         level=settings.logging.level,
@@ -35,16 +75,17 @@ def create_app() -> FastAPI:
         encoding="utf-8"
     )
     
-    # 创建FastAPI应用
+    # Create FastAPI application
     app = FastAPI(
-        title="EDR样本分析系统",
-        description="基于虚拟机的EDR样本自动化分析系统",
+        title="Malware Analysis System",
+        description="Malware analysis system",
         version="1.0.0",
         docs_url="/docs",
-        redoc_url="/redoc"
+        redoc_url="/redoc",
+        lifespan=lifespan
     )
     
-    # 添加CORS中间件
+    # Add CORS middleware
     app.add_middleware(
         CORSMiddleware,
         allow_origins=["*"],
@@ -52,68 +93,70 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
-    
-    # 添加自定义中间件
+
+    # Add custom middleware
     app.add_middleware(LoggingMiddleware)
     app.add_middleware(
         APIKeyMiddleware,
         exclude_paths=["/docs", "/redoc", "/openapi.json", "/api/health"]
     )
-    
-    # 注册路由
+
+    # Register routes
     app.include_router(router)
-    
-    # 启动事件
-    @app.on_event("startup")
-    async def startup_event():
-        logger.info("EDR样本分析系统启动中...")
 
-        # 创建必要的目录
-        os.makedirs(settings.server.upload_dir, exist_ok=True)
-        os.makedirs(os.path.dirname(settings.logging.file), exist_ok=True)
-
-        # 启动任务管理器
-        await task_manager.start()
-
-        logger.info(f"服务器配置:")
-        logger.info(f"  - 监听地址: {settings.server.host}:{settings.server.port}")
-        logger.info(f"  - 上传目录: {settings.server.upload_dir}")
-        logger.info(f"  - 最大文件大小: {settings.server.max_file_size} bytes")
-        vm_count = 0
-        if settings.windows and settings.windows.edr_analysis:
-            vm_count = len(settings.windows.edr_analysis.vms)
-        logger.info(f"  - 虚拟机数量: {vm_count}")
-        logger.info(f"  - 最大队列大小: {settings.task_settings.max_queue_size}")
-        logger.info(f"  - 并发任务数: {settings.task_settings.concurrent_tasks}")
-        logger.info("系统启动完成!")
-
-    # 关闭事件
-    @app.on_event("shutdown")
-    async def shutdown_event():
-        logger.info("EDR样本分析系统正在关闭...")
-
-        # 停止任务管理器
-        await task_manager.stop()
-
-        logger.info("系统已关闭")
-    
     return app
 
 
-# 创建应用实例
+# Create application instance
 app = create_app()
 
 
 if __name__ == "__main__":
     import uvicorn
-    
+    import logging
+    import sys
+
     settings = get_settings()
-    
-    logger.info("启动开发服务器...")
-    uvicorn.run(
-        "main:app",
-        host=settings.server.host,
-        port=settings.server.port,
-        reload=True,
-        log_level=settings.logging.level.lower()
-    )
+
+    # Check if running in production mode or from PyInstaller
+    is_production = "--production" in sys.argv or "--prod" in sys.argv
+    is_frozen = getattr(sys, 'frozen', False)  # PyInstaller sets this
+
+    if is_production or is_frozen:
+        # Production mode or PyInstaller executable
+        if is_frozen:
+            logger.info("Starting server from executable...")
+        else:
+            logger.info("Starting production server...")
+
+        # Disable debug logging in production
+        logging.getLogger("uvicorn").setLevel(logging.WARNING)
+        logging.getLogger("uvicorn.access").setLevel(logging.WARNING)
+        logging.getLogger("uvicorn.error").setLevel(logging.WARNING)
+
+        uvicorn.run(
+            app if is_frozen else "main:app",  # Use app object when frozen
+            host=settings.server.host,
+            port=settings.server.port,
+            reload=False,           # No auto-reload in production or when frozen
+            log_level="warning",    # Higher log level for production
+            access_log=True,        # Enable access logs for production monitoring
+            workers=1               # Single worker for this process
+        )
+    else:
+        # Development mode configuration
+        logger.info("Starting development server...")
+
+        # Disable uvicorn default logging in development
+        logging.getLogger("uvicorn").setLevel(logging.WARNING)
+        logging.getLogger("uvicorn.access").setLevel(logging.WARNING)
+        logging.getLogger("uvicorn.error").setLevel(logging.WARNING)
+
+        uvicorn.run(
+            "main:app",
+            host=settings.server.host,
+            port=settings.server.port,
+            reload=True,            # Auto-reload for development
+            log_level="warning",    # Set uvicorn log level to warning to reduce noise
+            access_log=False        # Disable access logs in development
+        )
