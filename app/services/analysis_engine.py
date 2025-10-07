@@ -8,7 +8,7 @@ from app.models.task import AnalysisTask, VMTaskResult, VMTaskStatus, EDRAlert
 from app.core.config import get_settings
 from app.services.vm_controller import create_vm_controller
 from app.services.file_handler import FileHandler
-from app.services.edr import EDRManager
+from app.services.windows.edr import EDRManager
 from app.services.vm_pool_manager import get_vm_pool_manager
 
 

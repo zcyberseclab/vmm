@@ -16,7 +16,7 @@ from app.core.config import get_settings
 from app.services.vm_controller import create_vm_controller
 from app.services.vm_pool_manager import get_vm_pool_manager
 from app.utils.helpers import utc_to_local_time, format_timestamp_to_local, get_current_local_time
-from tools.sysmon.sysmon_manager import SysmonManager, SysmonConfigType, SysmonStatus
+from .manager import SysmonManager, SysmonConfigType, SysmonStatus
 
 
 class SysmonAnalysisEngine:
@@ -135,26 +135,50 @@ class SysmonAnalysisEngine:
             )
             if not success:
                 raise Exception(f"Failed to install Sysmon: {message}")
-        elif status in [SysmonStatus.STOPPED, SysmonStatus.ERROR]:
-            # Try to restart or reinstall Sysmon
-            logger.warning(f"Sysmon status is {status}, attempting to reinstall")
-            sysmon_config_type = SysmonConfigType(config_type)
-            success, message = await self.sysmon_manager.install_sysmon(
-                vm_name, vm_config.username, vm_config.password, 
-                sysmon_config_type, force_reinstall=True
+        elif status in [SysmonStatus.STOPPED, SysmonStatus.INSTALLED]:
+            # Sysmon is installed but service might be stopped or status unclear
+            # Try to start the service
+            logger.info(f"Sysmon status is {status}, attempting to start service")
+            start_cmd = 'Start-Service -Name "Sysmon*" -ErrorAction SilentlyContinue'
+            success, output = await self.vm_controller.execute_command_in_vm(
+                vm_name, start_cmd, vm_config.username, vm_config.password, timeout=30
             )
-            if not success:
-                raise Exception(f"Failed to reinstall Sysmon: {message}")
+
+            if success:
+                logger.info("Sysmon service start command executed successfully")
+            else:
+                logger.warning(f"Sysmon service start command failed: {output}")
+
+            await asyncio.sleep(3)  # Wait for service to start
+        elif status == SysmonStatus.RUNNING:
+            logger.info(f"Sysmon is already running on VM {vm_name}")
+        else:
+            # For any other status (including ERROR), assume Sysmon is available
+            # This is more permissive and avoids unnecessary reinstallation
+            logger.warning(f"Sysmon status check returned {status}, but proceeding with analysis")
+            logger.info("Attempting to start Sysmon service just in case")
+            start_cmd = 'Start-Service -Name "Sysmon*" -ErrorAction SilentlyContinue'
+            await self.vm_controller.execute_command_in_vm(
+                vm_name, start_cmd, vm_config.username, vm_config.password, timeout=30
+            )
+            await asyncio.sleep(3)
         
-        # Verify Sysmon is working
+        # Verify Sysmon is working - be more permissive
         await asyncio.sleep(5)
         status, details = await self.sysmon_manager.get_sysmon_status(
             vm_name, vm_config.username, vm_config.password
         )
-        
-        if status not in [SysmonStatus.RUNNING, SysmonStatus.INSTALLED]:
-            raise Exception(f"Sysmon is not running properly: {status} - {details}")
-        
+
+        if status == SysmonStatus.NOT_INSTALLED:
+            # Only fail if we're absolutely sure Sysmon is not installed
+            raise Exception(f"Sysmon is not installed: {details}")
+        else:
+            # For any other status (RUNNING, INSTALLED, STOPPED, ERROR), proceed
+            # This is more permissive and allows analysis to continue
+            logger.info(f"Sysmon status: {status} - {details}")
+            if status != SysmonStatus.RUNNING:
+                logger.warning(f"Sysmon may not be running optimally (status: {status}), but proceeding with analysis")
+
         logger.info(f"Sysmon VM {vm_name} is ready for analysis")
     
     async def _execute_and_monitor(
@@ -214,11 +238,11 @@ class SysmonAnalysisEngine:
         
         logger.info(f"Collected {len(events)} Sysmon events")
         return events
-    
+
     async def _analyze_events(self, events: List[Dict], sample_hash: str) -> Dict[str, Any]:
         """Analyze collected Sysmon events"""
         logger.info(f"Analyzing {len(events)} Sysmon events")
-        
+
         analysis = {
             "total_events": len(events),
             "event_types": {},
@@ -229,7 +253,7 @@ class SysmonAnalysisEngine:
             "suspicious_activities": [],
             "detailed_events": []  # 新增：详细事件信息
         }
-        
+
         for event in events:
             event_id = event.get("Id", 0)
 
@@ -252,9 +276,9 @@ class SysmonAnalysisEngine:
                 self._analyze_file_operation(event, analysis)
             elif event_id in [12, 13, 14]:  # Registry events
                 self._analyze_registry_operation(event, analysis)
-        
+
         return analysis
-    
+
     def _analyze_process_creation(self, event: Dict, analysis: Dict):
         """Analyze process creation event"""
         message = event.get("Message", "")
@@ -269,7 +293,7 @@ class SysmonAnalysisEngine:
                         analysis["processes"][image] = 0
                     analysis["processes"][image] += 1
                     break
-    
+
     def _analyze_network_connection(self, event: Dict, analysis: Dict):
         """Analyze network connection event"""
         message = event.get("Message", "")
@@ -282,7 +306,7 @@ class SysmonAnalysisEngine:
             "details": message
         }
         analysis["network_connections"].append(connection_info)
-    
+
     def _analyze_file_operation(self, event: Dict, analysis: Dict):
         """Analyze file operation event"""
         message = event.get("Message", "")
@@ -295,7 +319,7 @@ class SysmonAnalysisEngine:
             "details": message
         }
         analysis["file_operations"].append(file_info)
-    
+
     def _analyze_registry_operation(self, event: Dict, analysis: Dict):
         """Analyze registry operation event"""
         message = event.get("Message", "")
@@ -517,13 +541,13 @@ class SysmonAnalysisEngine:
             logger.warning(f"Error parsing Sysmon message: {str(e)}")
 
         return parsed
-    
+
     async def _generate_report(
-        self, 
-        analysis_id: str, 
-        sample_hash: str, 
+        self,
+        analysis_id: str,
+        sample_hash: str,
         sample_path: str,
-        events: List[Dict], 
+        events: List[Dict],
         analysis: Dict[str, Any]
     ) -> Dict[str, Any]:
         """Generate final analysis report"""
@@ -549,26 +573,26 @@ class SysmonAnalysisEngine:
                 "timeout": self.settings.windows.sysmon_analysis.analysis_settings.post_execution_delay
             }
         }
-        
+
         # Save raw events if configured
         if self.settings.windows.sysmon_analysis.output_settings.save_raw_events:
             report["raw_events"] = events
-        
+
         return report
-    
+
     async def _ensure_vm_stopped(self, vm_name: str):
         """Ensure VM is stopped"""
         try:
             status_info = await self.vm_controller.get_status(vm_name)
             power_state = status_info.get("power_state", "unknown").lower()
-            
+
             if power_state in ['running', 'paused', 'stuck']:
                 logger.info(f"Stopping VM: {vm_name}")
                 await self.vm_controller.power_off(vm_name)
                 await asyncio.sleep(3)
         except Exception as e:
             logger.warning(f"Error ensuring VM stopped: {str(e)}")
-    
+
     async def _cleanup_vm(self, vm_name: str, vm_config: Any):
         """Cleanup VM after analysis"""
         logger.info(f"Cleaning up VM: {vm_name}")

@@ -5,11 +5,14 @@ This directory contains the EDR (Endpoint Detection and Response) client impleme
 ## Architecture Overview
 
 ```
-app/services/edr/
+app/services/windows/edr/
 ├── __init__.py              # Package exports and version info
 ├── base.py                  # Abstract base class for all EDR clients
 ├── windows_defender.py      # Windows Defender implementation
-├── kaspersky.py            # Kaspersky implementation (template)
+├── windows_kaspersky.py     # Kaspersky implementation
+├── windows_mcafee.py        # McAfee implementation
+├── windows_avira.py         # Avira implementation
+├── windows_trend.py         # Trend Micro implementation
 ├── manager.py              # EDR manager for coordinating multiple clients
 └── README.md               # This documentation
 ```
@@ -27,10 +30,10 @@ Complete implementation for Windows Defender:
 - Parses threat detection data
 - Converts to standardized EDRAlert objects
 
-### 3. KasperskyEDRClient (kaspersky.py)
-Template implementation showing how to add new EDR clients:
+### 3. Other EDR Clients
+Template implementations showing how to add new EDR clients:
 - Demonstrates the required method structure
-- Includes TODO comments for actual implementation
+- Includes implementation for various antivirus solutions
 - Shows data conversion patterns
 
 ### 4. EDRManager (manager.py)
@@ -44,7 +47,7 @@ Factory and coordinator class:
 To add support for a new EDR/antivirus solution, follow these steps:
 
 ### Step 1: Create the Implementation File
-Create a new file `app/services/edr/your_edr.py`:
+Create a new file `app/services/windows/edr/your_edr.py`:
 
 ```python
 from datetime import datetime
@@ -73,7 +76,7 @@ elif antivirus_type == 'your_edr':
 
 # Update supported types
 def get_supported_antivirus_types(self) -> List[str]:
-    return ['defender', 'kaspersky', 'your_edr']
+    return ['defender', 'kaspersky', 'mcafee', 'avira', 'trend', 'your_edr']
 ```
 
 ### Step 3: Update Package Exports
@@ -86,6 +89,9 @@ __all__ = [
     'EDRClient',
     'WindowsDefenderEDRClient',
     'KasperskyEDRClient',
+    'McafeeEDRClient',
+    'AviraEDRClient',
+    'TrendMicroEDRClient',
     'YourEDRClient',  # Add this
     'EDRManager',
     'create_edr_manager'
@@ -138,7 +144,7 @@ Convert EDR-specific data to `EDRAlert` objects with:
 
 ### Basic Usage
 ```python
-from app.services.edr import EDRManager, create_edr_manager
+from app.services.windows.edr import EDRManager, create_edr_manager
 
 # Create manager with VM configurations
 vm_configs = [
@@ -162,7 +168,7 @@ alerts = await edr_manager.collect_alerts_from_vm(
 
 ### Direct Client Usage
 ```python
-from app.services.edr import WindowsDefenderEDRClient
+from app.services.windows.edr import WindowsDefenderEDRClient
 
 client = WindowsDefenderEDRClient('win10-vm', vm_controller)
 alerts = await client.get_alerts(start_time, file_name='sample.exe')

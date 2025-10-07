@@ -390,7 +390,7 @@ class SimpleTaskManager:
         Args:
             task: 分析任务
         """
-        from app.services.sysmon import get_sysmon_engine
+        from app.services.windows.sysmon import get_sysmon_engine
 
         try:
             # 获取Sysmon分析引擎

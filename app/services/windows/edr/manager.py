@@ -134,7 +134,7 @@ class EDRManager:
         Returns:
             支持的杀软类型列表
         """
-        return ['defender', 'kaspersky']  # 可以根据实际支持的杀软类型扩展
+        return ['defender', 'kaspersky', 'mcafee', 'avira', 'trend']  # 可以根据实际支持的杀软类型扩展
 
     def get_vm_names(self) -> List[str]:
         """
