@@ -1,0 +1,223 @@
+name: 🚀 Build and Release Executables
+
+on:
+  push:
+    tags:
+      - 'v*'  # 触发条件：推送以 v 开头的标签 (如 v1.1.0)
+
+jobs:
+  build-windows:
+    name: 🪟 Build Windows Executable
+    runs-on: windows-latest
+    
+    steps:
+    - name: 📥 Checkout code
+      uses: actions/checkout@v4
+      
+    - name: 🐍 Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+        
+    - name: 📦 Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        pip install pyinstaller
+        
+    - name: 🔨 Build Windows executable
+      run: |
+        python tools/build/github_build.py
+        
+    - name: 📋 Get version
+      id: get_version
+      run: |
+        $version = "${{ github.ref_name }}"
+        echo "VERSION=$version" >> $env:GITHUB_OUTPUT
+        
+    - name: 📦 Prepare release artifacts
+      run: |
+        # 创建发布目录
+        mkdir release-artifacts
+        
+        # 复制可执行文件
+        copy "tools\build\dist\vmm-sandbox.exe" "release-artifacts\vmm-sandbox-windows-${{ steps.get_version.outputs.VERSION }}.exe"
+        
+        # 复制配置文件示例
+        copy "config.yaml.example" "release-artifacts\config.yaml.example"
+        
+        # 复制README
+        copy "README.md" "release-artifacts\README.md"
+        
+        # 创建使用说明
+        echo "# VMM Sandbox Analysis System - Windows Release" > release-artifacts\USAGE.md
+        echo "" >> release-artifacts\USAGE.md
+        echo "## Quick Start" >> release-artifacts\USAGE.md
+        echo "1. Copy config.yaml.example to config.yaml" >> release-artifacts\USAGE.md
+        echo "2. Edit config.yaml with your settings" >> release-artifacts\USAGE.md
+        echo "3. Run vmm-sandbox-windows-${{ steps.get_version.outputs.VERSION }}.exe" >> release-artifacts\USAGE.md
+        echo "4. Access web interface at http://localhost:8000" >> release-artifacts\USAGE.md
+        
+    - name: 📤 Upload Windows artifacts
+      uses: actions/upload-artifact@v3
+      with:
+        name: windows-executable
+        path: release-artifacts/
+
+  build-linux:
+    name: 🐧 Build Linux Executable
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: 📥 Checkout code
+      uses: actions/checkout@v4
+      
+    - name: 🐍 Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+        
+    - name: 📦 Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        pip install pyinstaller
+        
+    - name: 🔨 Build Linux executable
+      run: |
+        python tools/build/github_build.py
+        
+    - name: 📋 Get version
+      id: get_version
+      run: |
+        echo "VERSION=${{ github.ref_name }}" >> $GITHUB_OUTPUT
+        
+    - name: 📦 Prepare release artifacts
+      run: |
+        # 创建发布目录
+        mkdir -p release-artifacts
+        
+        # 复制可执行文件
+        cp "tools/build/dist/vmm-sandbox" "release-artifacts/vmm-sandbox-linux-${{ steps.get_version.outputs.VERSION }}"
+        chmod +x "release-artifacts/vmm-sandbox-linux-${{ steps.get_version.outputs.VERSION }}"
+        
+        # 复制配置文件示例
+        cp "config.yaml.example" "release-artifacts/config.yaml.example"
+        
+        # 复制README
+        cp "README.md" "release-artifacts/README.md"
+        
+        # 创建使用说明
+        cat > release-artifacts/USAGE.md << EOF
+        # VMM Sandbox Analysis System - Linux Release
+        
+        ## Quick Start
+        1. Copy config.yaml.example to config.yaml
+        2. Edit config.yaml with your settings
+        3. Run ./vmm-sandbox-linux-${{ steps.get_version.outputs.VERSION }}
+        4. Access web interface at http://localhost:8000
+        
+        ## Requirements
+        - Linux x86_64
+        - Virtualization support (VirtualBox, KVM, etc.)
+        - Network access for sample analysis
+        EOF
+        
+    - name: 📤 Upload Linux artifacts
+      uses: actions/upload-artifact@v3
+      with:
+        name: linux-executable
+        path: release-artifacts/
+
+  create-release:
+    name: 🎉 Create GitHub Release
+    needs: [build-windows, build-linux]
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: 📥 Checkout code
+      uses: actions/checkout@v4
+      
+    - name: 📥 Download Windows artifacts
+      uses: actions/download-artifact@v3
+      with:
+        name: windows-executable
+        path: windows-release/
+        
+    - name: 📥 Download Linux artifacts
+      uses: actions/download-artifact@v3
+      with:
+        name: linux-executable
+        path: linux-release/
+        
+    - name: 📋 Get version and changelog
+      id: get_info
+      run: |
+        VERSION=${{ github.ref_name }}
+        echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
+        
+        # 生成变更日志
+        cat > RELEASE_NOTES.md << EOF
+        # 🛡️ VMM Sandbox Analysis System $VERSION
+        
+        ## 📦 Downloads
+        
+        ### Windows
+        - **vmm-sandbox-windows-$VERSION.exe** - Windows executable (x64)
+        
+        ### Linux  
+        - **vmm-sandbox-linux-$VERSION** - Linux executable (x64)
+        
+        ## 🚀 Quick Start
+        
+        1. Download the appropriate executable for your platform
+        2. Copy \`config.yaml.example\` to \`config.yaml\`
+        3. Configure your sandbox settings in \`config.yaml\`
+        4. Run the executable
+        5. Access the web interface at http://localhost:8000
+        
+        ## 🔧 Features
+        
+        - 🛡️ Advanced malware sandbox analysis
+        - 🔍 Multi-engine threat detection
+        - 📊 Behavioral analysis with Sysmon integration
+        - ⚡ Parallel processing capabilities
+        - 🌐 RESTful API interface
+        - 📈 Real-time monitoring and reporting
+        
+        ## 📋 System Requirements
+        
+        ### Windows
+        - Windows 10/11 (x64)
+        - 16GB+ RAM recommended
+        - Virtualization platform (VirtualBox, Hyper-V)
+        
+        ### Linux
+        - Linux x86_64 (Ubuntu 20.04+, CentOS 8+)
+        - 16GB+ RAM recommended  
+        - Virtualization support (KVM, VirtualBox)
+        
+        ## 🆘 Support
+        
+        - 📖 Documentation: [README.md](README.md)
+        - 🐛 Issues: [GitHub Issues](https://github.com/zcyberseclab/vmm-sandbox/issues)
+        - 💬 Discussions: [GitHub Discussions](https://github.com/zcyberseclab/vmm-sandbox/discussions)
+        
+        ---
+        
+        **Full Changelog**: https://github.com/zcyberseclab/vmm-sandbox/compare/v1.0.0...$VERSION
+        EOF
+        
+    - name: 🎉 Create Release
+      uses: softprops/action-gh-release@v1
+      with:
+        tag_name: ${{ steps.get_info.outputs.VERSION }}
+        name: "🛡️ VMM Sandbox ${{ steps.get_info.outputs.VERSION }}"
+        body_path: RELEASE_NOTES.md
+        draft: false
+        prerelease: false
+        files: |
+          windows-release/*
+          linux-release/*
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

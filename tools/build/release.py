@@ -1,18 +1,20 @@
 #!/usr/bin/env python3
 """
-Simple PyInstaller Build Script - No data files
+GitHub Actions Release Build Script
+Builds executables for automated releases
 """
 
 import os
 import sys
 import subprocess
 import platform
+import shutil
 from pathlib import Path
 
-def simple_build():
-    """Simple build without data files"""
-    print("🚀 Simple Build for VMM Sandbox (No data files)")
-    print("=" * 55)
+def release_build():
+    """GitHub Actions release build"""
+    print("🚀 GitHub Actions Release Build for VMM Sandbox")
+    print("=" * 60)
     
     # Project root
     project_root = Path(__file__).parent.parent.parent
