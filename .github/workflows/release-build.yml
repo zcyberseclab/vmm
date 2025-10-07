@@ -5,6 +5,12 @@ on:
     tags:
       - 'v*'  # 触发条件：推送以 v 开头的标签 (如 v1.1.0)
 
+# 设置权限以允许创建Release
+permissions:
+  contents: write
+  packages: write
+  actions: read
+
 jobs:
   build-windows:
     name: 🪟 Build Windows Executable
@@ -209,7 +215,7 @@ jobs:
         EOF
         
     - name: 🎉 Create Release
-      uses: softprops/action-gh-release@v1
+      uses: softprops/action-gh-release@v2
       with:
         tag_name: ${{ steps.get_info.outputs.VERSION }}
         name: "🛡️ VMM Sandbox ${{ steps.get_info.outputs.VERSION }}"
@@ -219,5 +225,7 @@ jobs:
         files: |
           windows-release/*
           linux-release/*
+        make_latest: true
+        generate_release_notes: false
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
