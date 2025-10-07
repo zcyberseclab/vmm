@@ -104,7 +104,7 @@ class SysmonAnalysisEngine:
         logger.info(f"Preparing Sysmon VM: {vm_name}")
         
         # Get VM configuration
-        vm_config = self.settings.sysmon_analysis.vm
+        vm_config = self.settings.windows.sysmon_analysis.vm
         
         # Stop VM if running
         await self._ensure_vm_stopped(vm_name)
