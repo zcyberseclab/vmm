@@ -59,7 +59,7 @@ jobs:
         echo "4. Access web interface at http://localhost:8000" >> release-artifacts\USAGE.md
         
     - name: 📤 Upload Windows artifacts
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: windows-executable
         path: release-artifacts/
@@ -124,7 +124,7 @@ jobs:
         EOF
         
     - name: 📤 Upload Linux artifacts
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: linux-executable
         path: release-artifacts/
@@ -139,13 +139,13 @@ jobs:
       uses: actions/checkout@v4
       
     - name: 📥 Download Windows artifacts
-      uses: actions/download-artifact@v3
+      uses: actions/download-artifact@v4
       with:
         name: windows-executable
         path: windows-release/
-        
+
     - name: 📥 Download Linux artifacts
-      uses: actions/download-artifact@v3
+      uses: actions/download-artifact@v4
       with:
         name: linux-executable
         path: linux-release/
