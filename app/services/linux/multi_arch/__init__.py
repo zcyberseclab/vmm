@@ -14,12 +14,24 @@ Key Components:
 - Unified cross-architecture analysis interface
 """
 
-from .arch_manager import ArchManager
-from .qemu_controller import QEMUController
+# 条件导入 - Windows上可能缺少某些依赖
+try:
+    from .arch_manager import ArchManager
+except ImportError as e:
+    print(f"Warning: ArchManager import failed: {e}")
+    ArchManager = None
+
+try:
+    from .qemu_controller import QEMUController
+except ImportError as e:
+    print(f"Warning: QEMUController import failed: {e}")
+    QEMUController = None
 
 __all__ = [
     'ArchManager',
-    'QEMUController'
+    'QEMUController',
+    'SUPPORTED_ARCHITECTURES',
+    'ELF_ARCH_MAPPING'
 ]
 
 # Supported architectures

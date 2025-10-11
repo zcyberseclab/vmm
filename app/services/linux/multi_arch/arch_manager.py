@@ -8,6 +8,7 @@ for analyzing malware across different platforms.
 import os
 import subprocess
 import shutil
+import platform
 from typing import Dict, List, Optional, Any, Tuple
 from pathlib import Path
 from elftools.elf.elffile import ELFFile
@@ -15,26 +16,37 @@ from loguru import logger
 
 from app.core.config import get_settings
 from . import SUPPORTED_ARCHITECTURES, ELF_ARCH_MAPPING
-from .qemu_controller import QEMUController
+
+# 条件导入 - Windows上不需要libvirt
+try:
+    from .qemu_controller import QEMUController
+except ImportError as e:
+    logger.warning(f"QEMUController import failed: {e}")
+    QEMUController = None
 
 
 class ArchManager:
     """Multi-architecture management system"""
-    
+
     def __init__(self):
         self.settings = get_settings()
-        self.qemu_controller = QEMUController()
+        self.qemu_controller = QEMUController() if QEMUController else None
         self.available_architectures: Dict[str, bool] = {}
         self.vm_templates: Dict[str, List[str]] = {}
+        self.is_windows = platform.system() == "Windows"
         self._check_architecture_support()
     
     def _check_architecture_support(self):
         """Check which architectures are supported on this system"""
         logger.info("Checking multi-architecture support...")
-        
+
         for arch_name, arch_info in SUPPORTED_ARCHITECTURES.items():
             qemu_binary = arch_info['qemu_binary']
-            
+
+            # Windows上QEMU二进制文件有.exe扩展名
+            if self.is_windows and not qemu_binary.endswith('.exe'):
+                qemu_binary += '.exe'
+
             # Check if QEMU binary exists
             if shutil.which(qemu_binary):
                 self.available_architectures[arch_name] = True
@@ -42,12 +54,42 @@ class ArchManager:
             else:
                 self.available_architectures[arch_name] = False
                 logger.warning(f"❌ {arch_name} support missing ({qemu_binary} not found)")
-        
+
+        # 如果在Windows上没有找到QEMU，检查WSL2
+        if self.is_windows and not any(self.available_architectures.values()):
+            self._check_wsl2_qemu()
+
         # Log summary
         available_count = sum(self.available_architectures.values())
         total_count = len(SUPPORTED_ARCHITECTURES)
         logger.info(f"Architecture support: {available_count}/{total_count} available")
     
+    def _check_wsl2_qemu(self):
+        """Check QEMU availability in WSL2"""
+        try:
+            # 检查WSL2是否可用
+            result = subprocess.run(['wsl', '--list', '--verbose'],
+                                  capture_output=True, text=True, timeout=10)
+
+            if result.returncode == 0 and 'Ubuntu' in result.stdout:
+                logger.info("WSL2 detected, checking QEMU in WSL...")
+
+                # 在WSL中检查QEMU
+                for arch_name, arch_info in SUPPORTED_ARCHITECTURES.items():
+                    qemu_binary = arch_info['qemu_binary']
+
+                    wsl_result = subprocess.run(
+                        ['wsl', 'which', qemu_binary],
+                        capture_output=True, text=True, timeout=5
+                    )
+
+                    if wsl_result.returncode == 0:
+                        self.available_architectures[arch_name] = True
+                        logger.info(f"✅ {arch_name} available in WSL2")
+
+        except Exception as e:
+            logger.warning(f"WSL2 check failed: {e}")
+
     def get_supported_architectures(self) -> List[str]:
         """Get list of supported architectures"""
         return [arch for arch, available in self.available_architectures.items() if available]
@@ -209,33 +251,61 @@ class ArchManager:
     def _get_host_architecture(self) -> str:
         """Get host system architecture"""
         try:
-            result = subprocess.run(['uname', '-m'], capture_output=True, text=True)
-            return result.stdout.strip()
+            if self.is_windows:
+                # Windows上使用platform模块
+                return platform.machine()
+            else:
+                result = subprocess.run(['uname', '-m'], capture_output=True, text=True)
+                return result.stdout.strip()
         except Exception:
             return 'unknown'
     
     def _check_virtualization_support(self) -> Dict[str, bool]:
         """Check virtualization support capabilities"""
         support = {
-            'kvm': os.path.exists('/dev/kvm'),
+            'kvm': False,
             'nested_virtualization': False,
             'hardware_acceleration': False
         }
-        
-        # Check for nested virtualization
-        try:
-            with open('/sys/module/kvm_intel/parameters/nested', 'r') as f:
-                support['nested_virtualization'] = f.read().strip() == 'Y'
-        except FileNotFoundError:
+
+        if self.is_windows:
+            # Windows上检查Hyper-V和WHPX
             try:
-                with open('/sys/module/kvm_amd/parameters/nested', 'r') as f:
-                    support['nested_virtualization'] = f.read().strip() == '1'
+                # 检查Hyper-V
+                result = subprocess.run(
+                    ['powershell', '-Command', 'Get-WindowsOptionalFeature -Online -FeatureName Microsoft-Hyper-V-All | Select-Object State'],
+                    capture_output=True, text=True, timeout=10
+                )
+                support['hyperv'] = 'Enabled' in result.stdout
+
+                # 检查WHPX (Windows Hypervisor Platform)
+                whpx_result = subprocess.run(
+                    ['powershell', '-Command', 'Get-WindowsOptionalFeature -Online -FeatureName HypervisorPlatform | Select-Object State'],
+                    capture_output=True, text=True, timeout=10
+                )
+                support['whpx'] = 'Enabled' in whpx_result.stdout
+                support['hardware_acceleration'] = support.get('whpx', False) or support.get('hyperv', False)
+
+            except Exception as e:
+                logger.warning(f"Failed to check Windows virtualization features: {e}")
+        else:
+            # Linux上检查KVM
+            support['kvm'] = os.path.exists('/dev/kvm')
+
+            # Check for nested virtualization
+            try:
+                with open('/sys/module/kvm_intel/parameters/nested', 'r') as f:
+                    support['nested_virtualization'] = f.read().strip() == 'Y'
             except FileNotFoundError:
-                pass
-        
-        # Check hardware acceleration
-        support['hardware_acceleration'] = support['kvm']
-        
+                try:
+                    with open('/sys/module/kvm_amd/parameters/nested', 'r') as f:
+                        support['nested_virtualization'] = f.read().strip() == '1'
+                except FileNotFoundError:
+                    pass
+
+            # Check hardware acceleration
+            support['hardware_acceleration'] = support['kvm']
+
         return support
     
     def _get_qemu_versions(self) -> Dict[str, str]:

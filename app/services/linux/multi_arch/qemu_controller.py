@@ -3,6 +3,8 @@ QEMU Multi-Architecture Controller
 
 This module provides QEMU-based virtual machine control for multiple architectures
 including x86_64, ARM64, MIPS, and PowerPC.
+
+Note: This module works on both Windows and Linux, with platform-specific optimizations.
 """
 
 import os
@@ -10,6 +12,7 @@ import subprocess
 import json
 import time
 import socket
+import platform
 from typing import Dict, List, Optional, Any
 from pathlib import Path
 
@@ -19,11 +22,12 @@ from . import SUPPORTED_ARCHITECTURES
 
 class QEMUController:
     """QEMU virtual machine controller for multi-architecture support"""
-    
+
     def __init__(self):
         self.settings = get_settings()
         self.running_vms: Dict[str, Dict[str, Any]] = {}
         self.qmp_connections: Dict[str, socket.socket] = {}
+        self.is_windows = platform.system() == "Windows"
     
     def create_vm(self, vm_config: Dict[str, Any]) -> bool:
         """Create a virtual machine with architecture-specific configuration"""
@@ -35,12 +39,22 @@ class QEMUController:
             qemu_cmd = self._build_qemu_command(vm_config)
             
             # Start VM process
-            process = subprocess.Popen(
-                qemu_cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                preexec_fn=os.setsid  # Create new process group
-            )
+            if self.is_windows:
+                # Windows上不使用preexec_fn
+                process = subprocess.Popen(
+                    qemu_cmd,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    creationflags=subprocess.CREATE_NEW_PROCESS_GROUP
+                )
+            else:
+                # Linux上使用preexec_fn
+                process = subprocess.Popen(
+                    qemu_cmd,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    preexec_fn=os.setsid  # Create new process group
+                )
             
             # Store VM information
             self.running_vms[vm_name] = {
@@ -70,9 +84,13 @@ class QEMUController:
         """Build QEMU command line for specific architecture"""
         architecture = vm_config['architecture']
         arch_info = SUPPORTED_ARCHITECTURES[architecture]
-        
-        # Base command
-        cmd = [arch_info['qemu_binary']]
+
+        # Base command - Windows上添加.exe扩展名
+        qemu_binary = arch_info['qemu_binary']
+        if self.is_windows and not qemu_binary.endswith('.exe'):
+            qemu_binary += '.exe'
+
+        cmd = [qemu_binary]
         
         # Common parameters
         cmd.extend([
@@ -84,10 +102,19 @@ class QEMUController:
         ])
         
         # Acceleration
-        if arch_info['acceleration'] == 'kvm' and os.path.exists('/dev/kvm'):
-            cmd.extend(['-accel', 'kvm'])
+        if self.is_windows:
+            # Windows上使用WHPX或TCG
+            if architecture == 'x86_64':
+                # 使用正确的QEMU语法
+                cmd.extend(['-accel', 'whpx'])
+            else:
+                cmd.extend(['-accel', 'tcg'])
         else:
-            cmd.extend(['-accel', 'tcg'])
+            # Linux上使用KVM或TCG
+            if arch_info['acceleration'] == 'kvm' and os.path.exists('/dev/kvm'):
+                cmd.extend(['-accel', 'kvm'])
+            else:
+                cmd.extend(['-accel', 'tcg'])
         
         # Architecture-specific configuration
         cmd.extend(self._get_arch_specific_params(architecture, vm_config))
@@ -107,8 +134,14 @@ class QEMUController:
         cmd.extend(['-device', self._get_network_device(architecture)])
         
         # Monitor and management
-        qmp_socket = f"/tmp/qmp-{vm_config['name']}.sock"
-        cmd.extend(['-qmp', f'unix:{qmp_socket},server,nowait'])
+        if self.is_windows:
+            # Windows上使用TCP端口而不是Unix socket
+            qmp_port = 4444 + hash(vm_config['name']) % 1000  # 生成唯一端口
+            cmd.extend(['-qmp', f'tcp:localhost:{qmp_port},server,nowait'])
+        else:
+            # Linux上使用Unix socket
+            qmp_socket = f"/tmp/qmp-{vm_config['name']}.sock"
+            cmd.extend(['-qmp', f'unix:{qmp_socket},server,nowait'])
         
         # VNC display (for debugging)
         cmd.extend(['-vnc', ':1'])
