@@ -17,11 +17,23 @@ class ServerConfig(BaseModel):
     max_file_size: int = 104857600  # 100MB
 
 
-class VirtualizationConfig(BaseModel):
-    
-    controller_type: str = "virtualbox"
+class VirtualBoxConfig(BaseModel):
+    """VirtualBox配置"""
     vboxmanage_path: str = "auto"
     vm_startup_mode: str = "headless"  # gui 或 headless
+
+class QEMUConfig(BaseModel):
+    """QEMU配置"""
+    default_memory: str = "512"
+    default_smp: str = "1"
+    default_display: str = "vnc"
+    vnc_base_port: int = 5900
+    vm_images_dir: str = "./vm_images"
+
+class VirtualizationConfig(BaseModel):
+    """虚拟化配置"""
+    virtualbox: VirtualBoxConfig = VirtualBoxConfig()
+    qemu: QEMUConfig = QEMUConfig()
 
 
 class VirtualMachineConfig(BaseModel):

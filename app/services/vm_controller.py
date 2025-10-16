@@ -71,7 +71,11 @@ class VBoxManageController(VMController):
     async def power_on(self, vm_name: str) -> bool:
         """Start virtual machine with configured startup mode"""
         settings = get_settings()
-        startup_mode = getattr(settings.virtualization, 'vm_startup_mode', 'headless')
+
+        # Get startup mode from new configuration structure
+        startup_mode = 'headless'  # Default
+        if hasattr(settings, 'virtualization') and hasattr(settings.virtualization, 'virtualbox'):
+            startup_mode = getattr(settings.virtualization.virtualbox, 'vm_startup_mode', 'headless')
 
         # Validate startup mode
         if startup_mode not in ['gui', 'headless']:
@@ -421,10 +425,8 @@ class VBoxManageController(VMController):
  
 def create_vm_controller(controller_type: str = None) -> VMController:
     if controller_type is None:
-        # Read controller type from configuration
-        from app.core.config import get_settings
-        settings = get_settings()
-        controller_type = settings.virtualization.controller_type
+        # Default to VirtualBox for Windows analysis
+        controller_type = 'virtualbox'
 
     if controller_type.lower() == "virtualbox":
         return VBoxManageController()

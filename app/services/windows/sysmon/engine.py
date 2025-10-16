@@ -24,7 +24,7 @@ class SysmonAnalysisEngine:
     
     def __init__(self):
         self.settings = get_settings()
-        self.vm_controller = create_vm_controller()
+        self.vm_controller = create_vm_controller('virtualbox')
         self.sysmon_manager = SysmonManager(self.vm_controller)
         self.vm_pool_manager = None
         

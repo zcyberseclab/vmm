@@ -17,8 +17,8 @@ class AnalysisEngine:
     def __init__(self):
         self.settings = get_settings()
 
-        controller_type = getattr(self.settings.virtualization, 'controller_type', 'virtualbox')
-        self.vm_controller = create_vm_controller(controller_type)
+        # Use VirtualBox as default controller for Windows analysis
+        self.vm_controller = create_vm_controller('virtualbox')
         self.file_handler = FileHandler()
 
         # 使用新的EDR分析配置

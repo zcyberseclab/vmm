@@ -25,8 +25,9 @@ def test_malware_execution():
 
     # Sample file path
     file_path = "./tests/C9E0917FE3231A652C014AD76B55B26A.exe"
+    file_path = "./tests/calc.exe"
     #file_path = "./tests/b91ce2fa41029f6955bff20079468448.dll"
-    
+   
     try:
    
         health_response = requests.get(f"{base_url}/api/health")

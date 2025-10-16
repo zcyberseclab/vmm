@@ -40,7 +40,7 @@ def create_sysmon_manager():
     """Create SysmonManager with VM controller if available"""
     if VM_CONTROLLER_AVAILABLE:
         try:
-            vm_controller = create_vm_controller()
+            vm_controller = create_vm_controller('virtualbox')
             return SysmonManager(vm_controller)
         except Exception as e:
             print(f"⚠️  Warning: Failed to create VM controller: {str(e)}")

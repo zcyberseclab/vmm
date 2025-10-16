@@ -15,7 +15,63 @@ from elftools.elf.elffile import ELFFile
 from loguru import logger
 
 from app.core.config import get_settings
-from . import SUPPORTED_ARCHITECTURES, ELF_ARCH_MAPPING
+# 架构映射配置
+SUPPORTED_ARCHITECTURES = {
+    'x86_64': {
+        'qemu_binary': 'qemu-system-x86_64',
+        'machine': 'pc-q35-6.2',
+        'cpu': 'qemu64',
+        'acceleration': 'tcg',
+        'description': 'x86_64 (AMD64) - 主流桌面和服务器架构',
+        'iso_file': 'alpine-x86_64.iso',
+        'vnc_port': 5901
+    },
+    'aarch64': {
+        'qemu_binary': 'qemu-system-aarch64',
+        'machine': 'virt',
+        'cpu': 'cortex-a72',
+        'acceleration': 'tcg',
+        'description': 'ARM64 - IoT和移动设备架构',
+        'iso_file': 'alpine-arm64.iso',
+        'vnc_port': 5902
+    },
+    'mips64': {
+        'qemu_binary': 'qemu-system-mips64',
+        'machine': 'malta',
+        'cpu': 'MIPS64R2-generic',
+        'acceleration': 'tcg',
+        'description': 'MIPS64 - 路由器和嵌入式设备',
+        'iso_file': 'alpine-mips64.iso',
+        'vnc_port': 5903
+    },
+    'mips': {
+        'qemu_binary': 'qemu-system-mips',
+        'machine': 'malta',
+        'cpu': 'mips32r2-generic',
+        'acceleration': 'tcg',
+        'description': 'MIPS32 - 路由器和嵌入式设备',
+        'iso_file': 'alpine-mips.iso',
+        'vnc_port': 5904
+    },
+    'ppc64': {
+        'qemu_binary': 'qemu-system-ppc64',
+        'machine': 'pseries',
+        'cpu': 'power8',
+        'acceleration': 'tcg',
+        'description': 'PowerPC64 - IBM服务器架构',
+        'iso_file': 'alpine-ppc64.iso',
+        'vnc_port': 5905
+    }
+}
+
+# ELF架构映射 (ELF machine type -> 我们的架构名称)
+ELF_ARCH_MAPPING = {
+    0x3E: 'x86_64',      # EM_X86_64
+    0xB7: 'aarch64',     # EM_AARCH64
+    0x08: 'mips',        # EM_MIPS
+    0x15: 'ppc64',       # EM_PPC64
+    0x28: 'arm',         # EM_ARM (32-bit ARM)
+}
 
 # 条件导入 - Windows上不需要libvirt
 try:
@@ -34,8 +90,70 @@ class ArchManager:
         self.available_architectures: Dict[str, bool] = {}
         self.vm_templates: Dict[str, List[str]] = {}
         self.is_windows = platform.system() == "Windows"
+
+        # Load QEMU configuration from settings
+        self._load_qemu_config()
+
         self._check_architecture_support()
-    
+
+    def _load_qemu_config(self):
+        """Load QEMU configuration from settings"""
+        try:
+            # Get Linux behavioral analysis configuration
+            linux_config = getattr(self.settings, 'linux', {})
+            behavioral_config = linux_config.get('behavioral_analysis', {})
+
+            # Get QEMU defaults from virtualization section
+            virt_config = getattr(self.settings, 'virtualization', {})
+            qemu_config = virt_config.get('qemu', {})
+
+            # Load VM configurations
+            self.vm_configs = {}
+            vms = behavioral_config.get('vms', [])
+
+            for vm_config in vms:
+                arch = vm_config.get('architecture')
+                if arch:
+                    self.vm_configs[arch] = vm_config
+                    # Update SUPPORTED_ARCHITECTURES with VM config
+                    if arch in SUPPORTED_ARCHITECTURES:
+                        SUPPORTED_ARCHITECTURES[arch].update({
+                            'qemu_binary': vm_config.get('qemu_binary'),
+                            'machine': vm_config.get('machine'),
+                            'cpu': vm_config.get('cpu'),
+                            'acceleration': vm_config.get('acceleration', 'tcg'),
+                            'iso_file': vm_config.get('iso_file'),
+                            'vnc_port': vm_config.get('vnc_port'),
+                            'description': vm_config.get('description')
+                        })
+                        logger.debug(f"Updated {arch} configuration from Linux VMs")
+
+            # Load default settings
+            self.qemu_defaults = {
+                'default_memory': qemu_config.get('default_memory', '512'),
+                'default_smp': qemu_config.get('default_smp', '1'),
+                'default_display': qemu_config.get('default_display', 'vnc'),
+                'vnc_base_port': qemu_config.get('vnc_base_port', 5900),
+                'vm_images_dir': qemu_config.get('vm_images_dir', './vm_images')
+            }
+
+            # Load analysis settings
+            self.analysis_settings = behavioral_config.get('analysis_settings', {})
+
+            logger.info(f"Loaded configuration for {len(self.vm_configs)} Linux VMs")
+
+        except Exception as e:
+            logger.warning(f"Failed to load QEMU config: {e}, using defaults")
+            self.vm_configs = {}
+            self.qemu_defaults = {
+                'default_memory': '512',
+                'default_smp': '1',
+                'default_display': 'vnc',
+                'vnc_base_port': 5900,
+                'vm_images_dir': './vm_images'
+            }
+            self.analysis_settings = {}
+
     def _check_architecture_support(self):
         """Check which architectures are supported on this system"""
         logger.info("Checking multi-architecture support...")
@@ -179,24 +297,95 @@ class ArchManager:
         file_arch = self.detect_file_architecture(file_path)
         if not file_arch:
             return None
-        
+
         # Check if we support this architecture
         if not self.is_architecture_supported(file_arch):
             logger.warning(f"File architecture {file_arch} is not supported")
             return None
-        
+
         # Get available VMs for this architecture
         available_vms = self.vm_templates.get(file_arch, [])
         if not available_vms:
             logger.warning(f"No VMs available for architecture {file_arch}")
             return None
-        
+
         # For now, return the first available VM
         # TODO: Implement more sophisticated VM selection logic
         selected_vm = available_vms[0]
         logger.info(f"Selected VM {selected_vm} ({file_arch}) for file {file_path}")
-        
+
         return file_arch, selected_vm
+
+    def build_qemu_command(self, architecture: str, vm_name: str = None,
+                          memory: str = None, smp: str = None) -> List[str]:
+        """构建正确的QEMU命令"""
+        if architecture not in SUPPORTED_ARCHITECTURES:
+            raise ValueError(f"不支持的架构: {architecture}")
+
+        arch_config = SUPPORTED_ARCHITECTURES[architecture]
+
+        # 使用配置的默认值
+        memory = memory or self.qemu_defaults.get('default_memory', '512')
+        smp = smp or self.qemu_defaults.get('default_smp', '1')
+
+        # 基础命令
+        cmd = [arch_config['qemu_binary']]
+
+        # VM名称
+        if vm_name:
+            cmd.extend(['-name', vm_name])
+        else:
+            cmd.extend(['-name', f'vmm-{architecture}'])
+
+        # 内存和CPU
+        cmd.extend(['-m', memory])
+        cmd.extend(['-smp', smp])
+
+        # 架构特定配置
+        if 'machine' in arch_config:
+            cmd.extend(['-machine', arch_config['machine']])
+
+        if 'cpu' in arch_config:
+            cmd.extend(['-cpu', arch_config['cpu']])
+
+        # 加速器
+        cmd.extend(['-accel', arch_config['acceleration']])
+
+        # ISO文件 (如果存在)
+        iso_path = f"vm_images/{arch_config['iso_file']}"
+        if os.path.exists(iso_path):
+            cmd.extend(['-cdrom', iso_path])
+
+        # VNC显示
+        vnc_port = arch_config.get('vnc_port', 5901)
+        vnc_display = vnc_port - 5900  # VNC显示号
+        cmd.extend(['-vnc', f':{vnc_display}'])
+
+        # 监控接口
+        cmd.extend(['-monitor', 'stdio'])
+
+        return cmd
+
+    def get_vm_info(self, architecture: str) -> Dict[str, Any]:
+        """获取VM信息"""
+        if architecture not in SUPPORTED_ARCHITECTURES:
+            return {}
+
+        arch_config = SUPPORTED_ARCHITECTURES[architecture]
+        iso_path = f"vm_images/{arch_config['iso_file']}"
+
+        return {
+            'architecture': architecture,
+            'qemu_binary': arch_config['qemu_binary'],
+            'machine': arch_config.get('machine', 'default'),
+            'cpu': arch_config.get('cpu', 'default'),
+            'description': arch_config['description'],
+            'iso_file': arch_config['iso_file'],
+            'iso_exists': os.path.exists(iso_path),
+            'iso_size_mb': os.path.getsize(iso_path) / (1024*1024) if os.path.exists(iso_path) else 0,
+            'vnc_port': arch_config.get('vnc_port', 5901),
+            'available': self.available_architectures.get(architecture, False)
+        }
     
     def analyze_file_cross_architecture(self, file_path: str) -> Dict[str, Any]:
         """Analyze a file and determine cross-architecture compatibility"""

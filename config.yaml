@@ -10,9 +10,19 @@ server:
 
 # Virtualization Platform Configuration
 virtualization:
-  controller_type: "virtualbox"      # Use VirtualBox
-  vboxmanage_path: "auto"            # VBoxManage path, auto for auto-detection
-  vm_startup_mode: "gui"        # VM startup mode: "gui" or "headless"
+  # VirtualBox Configuration (for Windows analysis)
+  virtualbox:
+    vboxmanage_path: "auto"          # VBoxManage path, auto for auto-detection
+    vm_startup_mode: "gui"           # VM startup mode: "gui" or "headless"
+
+  # QEMU Configuration (for Linux/Firmware analysis)
+  qemu:
+    # Default settings for all architectures
+    default_memory: "512"            # Default memory allocation (MB)
+    default_smp: "1"                 # Default CPU cores
+    default_display: "vnc"           # Default display: "vnc", "gtk", "sdl"
+    vnc_base_port: 5900             # VNC base port (display :0 = port 5900)
+    vm_images_dir: "./vm_images"     # VM images directory
 
 # Task Configuration
 task_settings:
@@ -153,3 +163,133 @@ windows:
       save_raw_events: true         # Whether to save raw event JSON
       save_analysis_report: true    # Whether to save analysis report
       output_format: "json"         # Output format: "json", "xml", "csv"
+
+# Linux Behavioral Analysis Configuration
+linux:
+  # Behavioral analysis using QEMU
+  behavioral_analysis:
+    # Whether to enable Linux behavioral analysis
+    enabled: true
+
+    # Virtual Machine Configuration (using QEMU)
+    vms:
+      - name: "linux-x86_64"
+        architecture: "x86_64"
+        qemu_binary: "qemu-system-x86_64"
+        machine: "pc-q35-6.2"
+        cpu: "qemu64"
+        acceleration: "tcg"          # "kvm" on Linux, "tcg" on Windows
+        memory: "512"                # Memory in MB
+        smp: "1"                     # CPU cores
+        iso_file: "alpine-x86_64.iso"
+        vnc_port: 5901
+        description: "x86_64 Linux分析环境"
+
+      - name: "linux-aarch64"
+        architecture: "aarch64"
+        qemu_binary: "qemu-system-aarch64"
+        machine: "virt"
+        cpu: "cortex-a72"
+        acceleration: "tcg"
+        memory: "512"
+        smp: "1"
+        iso_file: "alpine-arm64.iso"
+        vnc_port: 5902
+        description: "ARM64 IoT设备分析环境"
+
+      - name: "linux-mips64"
+        architecture: "mips64"
+        qemu_binary: "qemu-system-mips64"
+        machine: "malta"
+        cpu: "MIPS64R2-generic"
+        acceleration: "tcg"
+        memory: "512"
+        smp: "1"
+        iso_file: "alpine-mips64.iso"
+        vnc_port: 5903
+        description: "MIPS64 路由器分析环境"
+
+      - name: "linux-mips"
+        architecture: "mips"
+        qemu_binary: "qemu-system-mips"
+        machine: "malta"
+        cpu: "mips32r2-generic"
+        acceleration: "tcg"
+        memory: "512"
+        smp: "1"
+        iso_file: "alpine-mips.iso"
+        vnc_port: 5904
+        description: "MIPS32 嵌入式设备分析环境"
+
+      - name: "linux-ppc64"
+        architecture: "ppc64"
+        qemu_binary: "qemu-system-ppc64"
+        machine: "pseries"
+        cpu: "power8"
+        acceleration: "tcg"
+        memory: "512"
+        smp: "1"
+        iso_file: "alpine-ppc64.iso"
+        vnc_port: 5905
+        description: "PowerPC64 服务器分析环境"
+
+    # Analysis Configuration
+    analysis_settings:
+      # Timeout settings
+      analysis_timeout: 300          # Analysis timeout (seconds)
+      vm_startup_timeout: 120        # VM startup timeout (seconds)
+      file_transfer_timeout: 30      # File transfer timeout (seconds)
+      initial_check_delay: 5         # Wait time after sample delivery (seconds)
+      runtime_monitor_time: 120      # Monitor time after sample execution (seconds)
+      execution_timeout: 60          # Sample execution timeout (seconds)
+
+    # Sample settings
+    sample_settings:
+      max_file_size: 104857600       # Maximum ELF file size (100MB)
+      monitor_processes: true        # Monitor process creation
+      monitor_network: true          # Monitor network connections
+      monitor_files: true            # Monitor file operations
+      capture_screenshots: false     # Capture VM screenshots
+
+# Firmware Analysis Configuration
+firmware:
+  # Firmware analysis using QEMU emulation
+  analysis:
+    # Whether to enable firmware analysis
+    enabled: true
+
+    # Firmware analysis VMs (using QEMU)
+    vms:
+      - name: "firmware-arm"
+        architecture: "arm"
+        qemu_binary: "qemu-system-arm"
+        machine: "versatilepb"
+        cpu: "arm1176"
+        acceleration: "tcg"
+        memory: "256"
+        smp: "1"
+        description: "ARM固件分析环境"
+
+      - name: "firmware-mips"
+        architecture: "mips"
+        qemu_binary: "qemu-system-mips"
+        machine: "malta"
+        cpu: "24Kf"
+        acceleration: "tcg"
+        memory: "256"
+        smp: "1"
+        description: "MIPS固件分析环境"
+
+    # Firmware analysis settings
+    analysis_settings:
+      analysis_timeout: 600          # Firmware analysis timeout (10 minutes)
+      emulation_timeout: 300         # Emulation timeout (5 minutes)
+      enable_network_emulation: true # Enable network emulation
+      enable_peripheral_emulation: true # Enable peripheral emulation
+
+    # Firmware file settings
+    firmware_settings:
+      max_firmware_size: 536870912   # Maximum firmware size (512MB)
+      supported_formats: ["bin", "img", "rom", "elf"]
+      enable_extraction: true        # Enable firmware extraction
+      enable_filesystem_analysis: true # Enable filesystem analysis
