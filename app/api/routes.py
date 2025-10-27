@@ -65,27 +65,13 @@ async def submit_analysis(
                 detail=f"超时时间必须在60到{settings.task_settings.max_analysis_timeout}秒之间"
             )
         
-        # 处理虚拟机名称列表
-        available_vms = []
-        if settings.windows and settings.windows.edr_analysis:
-            available_vms = [vm.name for vm in settings.windows.edr_analysis.vms]
-
-        if vm_names:
-            vm_list = [name.strip() for name in vm_names.split(",")]
-            # 验证虚拟机名称
-            invalid_vms = [vm for vm in vm_list if vm not in available_vms]
-            if invalid_vms:
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail=f"无效的虚拟机名称: {', '.join(invalid_vms)}"
-                )
-        else:
-            # 如果没有指定VM，使用所有可用的EDR VM
-            vm_list = available_vms
-            logger.info(f"未指定VM名称，自动使用所有可用VM: {vm_list}")
+        # VM选择将在文件保存后通过自动检测完成
         
         # 保存文件
         file_info = await file_handler.save_uploaded_file(file)
+
+        # 自动检测样本类型和架构
+        vm_list = await _auto_detect_and_select_vms(file_info["path"], vm_names, settings)
 
         # 创建分析任务
         task = AnalysisTask(
@@ -220,6 +206,7 @@ async def get_analysis_result(
             total_alerts=total_alerts,
             edr_results=task.edr_results,
             behavior_results=task.behavior_results,
+            analysis_metadata=task.analysis_metadata or {},
             summary=summary
         )
         
@@ -382,3 +369,144 @@ async def reset_vm_errors(api_key: str = Depends(verify_api_key)):
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"重置VM错误状态失败: {str(e)}"
         )
+
+
+async def _auto_detect_and_select_vms(file_path: str, vm_names: Optional[str], settings) -> List[str]:
+    """
+    自动检测样本类型和架构，选择合适的虚拟机
+
+    Args:
+        file_path: 样本文件路径
+        vm_names: 用户指定的VM名称（可选）
+        settings: 系统配置
+
+    Returns:
+        List[str]: 选择的VM名称列表
+    """
+    try:
+        # 如果用户明确指定了VM，验证并使用用户指定的VM
+        if vm_names:
+            # 收集所有可用的VM名称
+            all_available_vms = []
+
+            # Windows VMs
+            if settings.windows and settings.windows.edr_analysis:
+                all_available_vms.extend([vm.name for vm in settings.windows.edr_analysis.vms])
+
+            # Linux VMs
+            if settings.linux and settings.linux.behavioral_analysis:
+                all_available_vms.extend([vm.name for vm in settings.linux.behavioral_analysis.vms])
+
+            vm_list = [name.strip() for name in vm_names.split(",")]
+            invalid_vms = [vm for vm in vm_list if vm not in all_available_vms]
+            if invalid_vms:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"无效的虚拟机名称: {', '.join(invalid_vms)}"
+                )
+
+            logger.info(f"使用用户指定的VM: {vm_list}")
+            return vm_list
+
+        # 自动检测样本类型
+        sample_type = _detect_sample_type(file_path)
+        logger.info(f"检测到样本类型: {sample_type}")
+
+        if sample_type == "elf":
+            # Linux ELF样本 - 检测架构并选择对应的Linux VM
+            from app.services.linux.multi_arch.arch_manager import ArchManager
+
+            arch_manager = ArchManager()
+            detected_arch = arch_manager.detect_file_architecture(file_path)
+
+            if not detected_arch:
+                logger.warning(f"无法检测ELF文件架构: {file_path}")
+                return []  # 空列表表示Linux分析但架构未知
+
+            logger.info(f"检测到ELF架构: {detected_arch}")
+
+            # 查找匹配的Linux VM
+            if settings.linux and settings.linux.behavioral_analysis:
+                for vm_config in settings.linux.behavioral_analysis.vms:
+                    if vm_config.architecture == detected_arch:
+                        logger.info(f"选择Linux VM: {vm_config.name} ({detected_arch})")
+                        return []  # 返回空列表表示Linux分析，任务管理器会处理
+
+            logger.warning(f"没有找到适合 {detected_arch} 架构的Linux VM")
+            return []
+
+        elif sample_type in ["pe", "dll", "unknown"]:
+            # Windows样本 - 使用所有Windows EDR VM
+            if settings.windows and settings.windows.edr_analysis:
+                vm_list = [vm.name for vm in settings.windows.edr_analysis.vms]
+                logger.info(f"检测到Windows样本，使用所有EDR VM: {vm_list}")
+                return vm_list
+            else:
+                logger.warning("没有配置Windows EDR VM")
+                return []
+
+        else:
+            logger.warning(f"未知样本类型: {sample_type}")
+            # 默认使用Windows分析
+            if settings.windows and settings.windows.edr_analysis:
+                vm_list = [vm.name for vm in settings.windows.edr_analysis.vms]
+                logger.info(f"未知样本类型，默认使用Windows EDR VM: {vm_list}")
+                return vm_list
+            return []
+
+    except Exception as e:
+        logger.error(f"自动检测VM失败: {e}")
+        # 发生错误时，默认使用Windows分析
+        if settings.windows and settings.windows.edr_analysis:
+            vm_list = [vm.name for vm in settings.windows.edr_analysis.vms]
+            logger.info(f"检测失败，默认使用Windows EDR VM: {vm_list}")
+            return vm_list
+        return []
+
+
+def _detect_sample_type(file_path: str) -> str:
+    """
+    检测样本文件类型
+
+    Args:
+        file_path: 文件路径
+
+    Returns:
+        str: 文件类型 ("elf", "pe", "dll", "unknown")
+    """
+    try:
+        with open(file_path, 'rb') as f:
+            # 读取文件头
+            header = f.read(64)
+
+            if len(header) < 4:
+                return "unknown"
+
+            # 检查ELF魔数
+            if header[:4] == b'\x7fELF':
+                return "elf"
+
+            # 检查PE魔数
+            if header[:2] == b'MZ':
+                # 进一步检查是否为PE文件
+                if len(header) >= 64:
+                    # 读取PE头偏移
+                    try:
+                        pe_offset = int.from_bytes(header[60:64], byteorder='little')
+                        if pe_offset < len(header):
+                            return "pe"
+                        else:
+                            # 需要读取更多数据来确认PE头
+                            f.seek(pe_offset)
+                            pe_header = f.read(4)
+                            if pe_header == b'PE\x00\x00':
+                                return "pe"
+                    except:
+                        pass
+                return "pe"  # 有MZ头，假设是PE文件
+
+            return "unknown"
+
+    except Exception as e:
+        logger.error(f"检测文件类型失败: {file_path} - {e}")
+        return "unknown"

@@ -30,48 +30,8 @@ except ImportError as e:
 __all__ = [
     'ArchManager',
     'QEMUController',
-    'SUPPORTED_ARCHITECTURES',
     'ELF_ARCH_MAPPING'
 ]
-
-# Supported architectures
-SUPPORTED_ARCHITECTURES = {
-    'x86_64': {
-        'name': 'x86_64',
-        'description': 'Intel/AMD 64-bit',
-        'qemu_binary': 'qemu-system-x86_64',
-        'acceleration': 'kvm',
-        'endianness': 'little'
-    },
-    'aarch64': {
-        'name': 'aarch64', 
-        'description': 'ARM 64-bit',
-        'qemu_binary': 'qemu-system-aarch64',
-        'acceleration': 'tcg',
-        'endianness': 'little'
-    },
-    'mips64': {
-        'name': 'mips64',
-        'description': 'MIPS 64-bit',
-        'qemu_binary': 'qemu-system-mips64',
-        'acceleration': 'tcg', 
-        'endianness': 'big'
-    },
-    'mips': {
-        'name': 'mips',
-        'description': 'MIPS 32-bit',
-        'qemu_binary': 'qemu-system-mips',
-        'acceleration': 'tcg',
-        'endianness': 'big'
-    },
-    'ppc64': {
-        'name': 'ppc64',
-        'description': 'PowerPC 64-bit',
-        'qemu_binary': 'qemu-system-ppc64',
-        'acceleration': 'tcg',
-        'endianness': 'big'
-    }
-}
 
 # ELF machine type to architecture mapping
 ELF_ARCH_MAPPING = {

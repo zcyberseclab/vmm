@@ -26,10 +26,10 @@ virtualization:
 
 # Task Configuration
 task_settings:
-  default_analysis_timeout: 180  # Default analysis timeout (seconds) - further reduced to 180s (3 minutes)
+  default_analysis_timeout: 300  # Default analysis timeout (seconds) - further reduced to 180s (3 minutes)
   max_analysis_timeout: 1800     # Maximum analysis timeout (seconds)
   cleanup_after_analysis: true   # Whether to auto cleanup after analysis
-  concurrent_tasks: 10           # Number of concurrent tasks - increased from 8 to 10
+  concurrent_tasks: 50           # Number of concurrent tasks - increased from 8 to 10
   max_queue_size: 100            # Maximum queue size
 
 # Logging Configuration

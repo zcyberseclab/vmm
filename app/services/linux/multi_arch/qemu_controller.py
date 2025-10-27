@@ -17,7 +17,6 @@ from typing import Dict, List, Optional, Any
 from pathlib import Path
 
 from app.core.config import get_settings
-from . import SUPPORTED_ARCHITECTURES
 
 
 class QEMUController:
@@ -83,10 +82,9 @@ class QEMUController:
     def _build_qemu_command(self, vm_config: Dict[str, Any]) -> List[str]:
         """Build QEMU command line for specific architecture"""
         architecture = vm_config['architecture']
-        arch_info = SUPPORTED_ARCHITECTURES[architecture]
 
         # Base command - Windows上添加.exe扩展名
-        qemu_binary = arch_info['qemu_binary']
+        qemu_binary = vm_config.get('qemu_binary', f'qemu-system-{architecture}')
         if self.is_windows and not qemu_binary.endswith('.exe'):
             qemu_binary += '.exe'
 
@@ -111,7 +109,8 @@ class QEMUController:
                 cmd.extend(['-accel', 'tcg'])
         else:
             # Linux上使用KVM或TCG
-            if arch_info['acceleration'] == 'kvm' and os.path.exists('/dev/kvm'):
+            acceleration = vm_config.get('acceleration', 'tcg')
+            if acceleration == 'kvm' and os.path.exists('/dev/kvm'):
                 cmd.extend(['-accel', 'kvm'])
             else:
                 cmd.extend(['-accel', 'tcg'])
@@ -370,9 +369,12 @@ class QEMUController:
     def _get_qemu_version(self, architecture: str) -> str:
         """Get QEMU version for specific architecture"""
         try:
-            arch_info = SUPPORTED_ARCHITECTURES[architecture]
+            qemu_binary = f'qemu-system-{architecture}'
+            if self.is_windows:
+                qemu_binary += '.exe'
+
             result = subprocess.run(
-                [arch_info['qemu_binary'], '--version'],
+                [qemu_binary, '--version'],
                 capture_output=True,
                 text=True,
                 timeout=5

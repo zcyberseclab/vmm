@@ -11,57 +11,18 @@ import shutil
 import platform
 from typing import Dict, List, Optional, Any, Tuple
 from pathlib import Path
-from elftools.elf.elffile import ELFFile
 from loguru import logger
 
+# 使用内置ELF解析器，不依赖外部库
+
 from app.core.config import get_settings
-# 架构映射配置
-SUPPORTED_ARCHITECTURES = {
-    'x86_64': {
-        'qemu_binary': 'qemu-system-x86_64',
-        'machine': 'pc-q35-6.2',
-        'cpu': 'qemu64',
-        'acceleration': 'tcg',
-        'description': 'x86_64 (AMD64) - 主流桌面和服务器架构',
-        'iso_file': 'alpine-x86_64.iso',
-        'vnc_port': 5901
-    },
-    'aarch64': {
-        'qemu_binary': 'qemu-system-aarch64',
-        'machine': 'virt',
-        'cpu': 'cortex-a72',
-        'acceleration': 'tcg',
-        'description': 'ARM64 - IoT和移动设备架构',
-        'iso_file': 'alpine-arm64.iso',
-        'vnc_port': 5902
-    },
-    'mips64': {
-        'qemu_binary': 'qemu-system-mips64',
-        'machine': 'malta',
-        'cpu': 'MIPS64R2-generic',
-        'acceleration': 'tcg',
-        'description': 'MIPS64 - 路由器和嵌入式设备',
-        'iso_file': 'alpine-mips64.iso',
-        'vnc_port': 5903
-    },
-    'mips': {
-        'qemu_binary': 'qemu-system-mips',
-        'machine': 'malta',
-        'cpu': 'mips32r2-generic',
-        'acceleration': 'tcg',
-        'description': 'MIPS32 - 路由器和嵌入式设备',
-        'iso_file': 'alpine-mips.iso',
-        'vnc_port': 5904
-    },
-    'ppc64': {
-        'qemu_binary': 'qemu-system-ppc64',
-        'machine': 'pseries',
-        'cpu': 'power8',
-        'acceleration': 'tcg',
-        'description': 'PowerPC64 - IBM服务器架构',
-        'iso_file': 'alpine-ppc64.iso',
-        'vnc_port': 5905
-    }
+# ELF架构映射 (ELF machine type -> 我们的架构名称)
+ELF_ARCH_MAPPING = {
+    0x3E: 'x86_64',      # EM_X86_64
+    0xB7: 'aarch64',     # EM_AARCH64
+    0x08: 'mips',        # EM_MIPS
+    0x15: 'ppc64',       # EM_PPC64
+    0x28: 'arm',         # EM_ARM (32-bit ARM)
 }
 
 # ELF架构映射 (ELF machine type -> 我们的架构名称)
@@ -100,33 +61,45 @@ class ArchManager:
         """Load QEMU configuration from settings"""
         try:
             # Get Linux behavioral analysis configuration
-            linux_config = getattr(self.settings, 'linux', {})
-            behavioral_config = linux_config.get('behavioral_analysis', {})
+            linux_config = getattr(self.settings, 'linux', None)
+            behavioral_config = {}
+            if linux_config and hasattr(linux_config, 'behavioral_analysis'):
+                behavioral_config = linux_config.behavioral_analysis.__dict__ if linux_config.behavioral_analysis else {}
 
             # Get QEMU defaults from virtualization section
-            virt_config = getattr(self.settings, 'virtualization', {})
-            qemu_config = virt_config.get('qemu', {})
+            virt_config = getattr(self.settings, 'virtualization', None)
+            qemu_config = {}
+            if virt_config and hasattr(virt_config, 'qemu'):
+                qemu_config = virt_config.qemu.__dict__ if virt_config.qemu else {}
 
             # Load VM configurations
             self.vm_configs = {}
             vms = behavioral_config.get('vms', [])
 
+            # If behavioral_config is from object, try to get vms attribute
+            if not vms and linux_config and hasattr(linux_config, 'behavioral_analysis'):
+                behavioral_analysis = linux_config.behavioral_analysis
+                if behavioral_analysis and hasattr(behavioral_analysis, 'vms'):
+                    vms = behavioral_analysis.vms
+
             for vm_config in vms:
-                arch = vm_config.get('architecture')
+                # Handle both dict and object VM configs
+                if hasattr(vm_config, 'architecture'):
+                    arch = vm_config.architecture
+                    vm_dict = vm_config.__dict__
+                    vm_name = getattr(vm_config, 'name', f'linux-{arch}')
+                else:
+                    arch = vm_config.get('architecture')
+                    vm_dict = vm_config
+                    vm_name = vm_config.get('name', f'linux-{arch}')
+
                 if arch:
-                    self.vm_configs[arch] = vm_config
-                    # Update SUPPORTED_ARCHITECTURES with VM config
-                    if arch in SUPPORTED_ARCHITECTURES:
-                        SUPPORTED_ARCHITECTURES[arch].update({
-                            'qemu_binary': vm_config.get('qemu_binary'),
-                            'machine': vm_config.get('machine'),
-                            'cpu': vm_config.get('cpu'),
-                            'acceleration': vm_config.get('acceleration', 'tcg'),
-                            'iso_file': vm_config.get('iso_file'),
-                            'vnc_port': vm_config.get('vnc_port'),
-                            'description': vm_config.get('description')
-                        })
-                        logger.debug(f"Updated {arch} configuration from Linux VMs")
+                    self.vm_configs[arch] = vm_dict
+                    # Add to vm_templates
+                    if arch not in self.vm_templates:
+                        self.vm_templates[arch] = []
+                    self.vm_templates[arch].append(vm_name)
+                    logger.debug(f"Loaded {arch} configuration from Linux VMs")
 
             # Load default settings
             self.qemu_defaults = {
@@ -139,6 +112,14 @@ class ArchManager:
 
             # Load analysis settings
             self.analysis_settings = behavioral_config.get('analysis_settings', {})
+
+            # If behavioral_config is from object, try to get analysis_settings attribute
+            if not self.analysis_settings and linux_config and hasattr(linux_config, 'behavioral_analysis'):
+                behavioral_analysis = linux_config.behavioral_analysis
+                if behavioral_analysis and hasattr(behavioral_analysis, 'analysis_settings'):
+                    analysis_settings = behavioral_analysis.analysis_settings
+                    if analysis_settings:
+                        self.analysis_settings = analysis_settings.__dict__ if hasattr(analysis_settings, '__dict__') else {}
 
             logger.info(f"Loaded configuration for {len(self.vm_configs)} Linux VMs")
 
@@ -158,8 +139,9 @@ class ArchManager:
         """Check which architectures are supported on this system"""
         logger.info("Checking multi-architecture support...")
 
-        for arch_name, arch_info in SUPPORTED_ARCHITECTURES.items():
-            qemu_binary = arch_info['qemu_binary']
+        # 使用config.yaml中配置的VM来检查架构支持
+        for arch_name, vm_config in self.vm_configs.items():
+            qemu_binary = vm_config.get('qemu_binary', f'qemu-system-{arch_name}')
 
             # Windows上QEMU二进制文件有.exe扩展名
             if self.is_windows and not qemu_binary.endswith('.exe'):
@@ -179,7 +161,7 @@ class ArchManager:
 
         # Log summary
         available_count = sum(self.available_architectures.values())
-        total_count = len(SUPPORTED_ARCHITECTURES)
+        total_count = len(self.vm_configs)
         logger.info(f"Architecture support: {available_count}/{total_count} available")
     
     def _check_wsl2_qemu(self):
@@ -193,8 +175,8 @@ class ArchManager:
                 logger.info("WSL2 detected, checking QEMU in WSL...")
 
                 # 在WSL中检查QEMU
-                for arch_name, arch_info in SUPPORTED_ARCHITECTURES.items():
-                    qemu_binary = arch_info['qemu_binary']
+                for arch_name, vm_config in self.vm_configs.items():
+                    qemu_binary = vm_config.get('qemu_binary', f'qemu-system-{arch_name}')
 
                     wsl_result = subprocess.run(
                         ['wsl', 'which', qemu_binary],
@@ -219,41 +201,55 @@ class ArchManager:
     def detect_file_architecture(self, file_path: str) -> Optional[str]:
         """Detect the target architecture of an ELF file"""
         try:
+            # 使用内置解析器检测ELF架构
+            return self._detect_with_builtin_parser(file_path)
+        except Exception as e:
+            logger.error(f"Failed to detect architecture for {file_path}: {e}")
+            return None
+
+
+
+    def _detect_with_builtin_parser(self, file_path: str) -> Optional[str]:
+        """使用内置解析器检测ELF架构（不依赖外部库）"""
+        try:
             with open(file_path, 'rb') as f:
-                # Check if it's an ELF file
+                # 检查ELF魔数
                 magic = f.read(4)
                 if magic != b'\x7fELF':
                     logger.warning(f"File {file_path} is not an ELF file")
                     return None
-                
-                # Reset and parse ELF
-                f.seek(0)
-                elffile = ELFFile(f)
-                
-                # Get machine type
-                machine = elffile.header['e_machine']
+
+                # 读取字节序信息
+                f.seek(5)  # EI_DATA字段位置
+                endian_byte = f.read(1)[0]
+                endianness = 'little' if endian_byte == 1 else 'big'
+
+                # 跳到machine type字段
+                f.seek(18)  # e_machine字段位置
+                machine_bytes = f.read(2)
+                machine = int.from_bytes(machine_bytes, byteorder=endianness)
+
                 architecture = ELF_ARCH_MAPPING.get(machine)
-                
                 if architecture:
-                    logger.info(f"Detected architecture: {architecture} for {file_path}")
+                    logger.info(f"Detected architecture: {architecture} (machine type: 0x{machine:02x}) for {file_path}")
                     return architecture
                 else:
                     logger.warning(f"Unknown architecture (machine type: 0x{machine:02x}) for {file_path}")
                     return None
-                    
+
         except Exception as e:
-            logger.error(f"Failed to detect architecture for {file_path}: {e}")
+            logger.error(f"Built-in parser detection failed for {file_path}: {e}")
             return None
     
     def get_architecture_info(self, architecture: str) -> Optional[Dict[str, Any]]:
         """Get detailed information about an architecture"""
-        if architecture not in SUPPORTED_ARCHITECTURES:
+        if architecture not in self.vm_configs:
             return None
-        
-        arch_info = SUPPORTED_ARCHITECTURES[architecture].copy()
+
+        arch_info = self.vm_configs[architecture].copy()
         arch_info['available'] = self.available_architectures.get(architecture, False)
         arch_info['vm_templates'] = self.vm_templates.get(architecture, [])
-        
+
         return arch_info
     
     def create_vm_for_architecture(self, architecture: str, vm_name: str, config: Dict[str, Any]) -> bool:
@@ -264,14 +260,14 @@ class ArchManager:
         
         try:
             # Get architecture-specific configuration
-            arch_info = SUPPORTED_ARCHITECTURES[architecture]
-            
+            arch_info = self.vm_configs.get(architecture, {})
+
             # Merge with user config
             vm_config = {
                 'name': vm_name,
                 'architecture': architecture,
-                'qemu_binary': arch_info['qemu_binary'],
-                'acceleration': arch_info['acceleration'],
+                'qemu_binary': arch_info.get('qemu_binary', f'qemu-system-{architecture}'),
+                'acceleration': arch_info.get('acceleration', 'tcg'),
                 **config
             }
             
@@ -316,20 +312,69 @@ class ArchManager:
 
         return file_arch, selected_vm
 
+    def analyze_file_compatibility(self, file_path: str) -> Dict[str, Any]:
+        """分析文件兼容性"""
+        try:
+            # 检测文件架构
+            detected_arch = self.detect_file_architecture(file_path)
+
+            # 获取文件信息
+            file_size = os.path.getsize(file_path) if os.path.exists(file_path) else 0
+
+            # 创建分析结果
+            analysis_result = {
+                'file_path': file_path,
+                'file_size': file_size,
+                'primary_architecture': detected_arch,
+                'compatible_architectures': [],
+                'analysis_recommendations': []
+            }
+
+            if detected_arch:
+                # 检查架构支持
+                if self.is_architecture_supported(detected_arch):
+                    analysis_result['compatible_architectures'].append(detected_arch)
+                    analysis_result['analysis_recommendations'].append(
+                        f"文件适合在 {detected_arch} 架构上分析"
+                    )
+                else:
+                    analysis_result['analysis_recommendations'].append(
+                        f"主要架构 {detected_arch} 不受支持 - 考虑模拟"
+                    )
+
+                # 添加动态分析建议
+                analysis_result['analysis_recommendations'].append(
+                    "建议进行动态分析以获取行为信息"
+                )
+            else:
+                analysis_result['analysis_recommendations'].append(
+                    "无法检测文件架构 - 可能不是有效的ELF文件"
+                )
+
+            return analysis_result
+
+        except Exception as e:
+            logger.error(f"文件兼容性分析失败: {file_path} - {e}")
+            return {
+                'file_path': file_path,
+                'error': str(e),
+                'analysis_recommendations': ['分析失败，请检查文件格式']
+            }
+
     def build_qemu_command(self, architecture: str, vm_name: str = None,
                           memory: str = None, smp: str = None) -> List[str]:
         """构建正确的QEMU命令"""
-        if architecture not in SUPPORTED_ARCHITECTURES:
+        if architecture not in self.vm_configs:
             raise ValueError(f"不支持的架构: {architecture}")
 
-        arch_config = SUPPORTED_ARCHITECTURES[architecture]
+        arch_config = self.vm_configs[architecture]
 
         # 使用配置的默认值
         memory = memory or self.qemu_defaults.get('default_memory', '512')
         smp = smp or self.qemu_defaults.get('default_smp', '1')
 
         # 基础命令
-        cmd = [arch_config['qemu_binary']]
+        cmd = [arch_config.get('qemu_binary', f'qemu-system-{architecture}')]
 
         # VM名称
         if vm_name:
@@ -342,10 +387,10 @@ class ArchManager:
         cmd.extend(['-smp', smp])
 
         # 架构特定配置
-        if 'machine' in arch_config:
+        if arch_config.get('machine'):
             cmd.extend(['-machine', arch_config['machine']])
 
-        if 'cpu' in arch_config:
+        if arch_config.get('cpu'):
             cmd.extend(['-cpu', arch_config['cpu']])
 
         # 加速器
@@ -368,19 +413,19 @@ class ArchManager:
 
     def get_vm_info(self, architecture: str) -> Dict[str, Any]:
         """获取VM信息"""
-        if architecture not in SUPPORTED_ARCHITECTURES:
+        if architecture not in self.vm_configs:
             return {}
 
-        arch_config = SUPPORTED_ARCHITECTURES[architecture]
-        iso_path = f"vm_images/{arch_config['iso_file']}"
+        arch_config = self.vm_configs[architecture]
+        iso_path = f"vm_images/{arch_config.get('iso_file', f'{architecture}.iso')}"
 
         return {
             'architecture': architecture,
-            'qemu_binary': arch_config['qemu_binary'],
+            'qemu_binary': arch_config.get('qemu_binary', f'qemu-system-{architecture}'),
             'machine': arch_config.get('machine', 'default'),
             'cpu': arch_config.get('cpu', 'default'),
-            'description': arch_config['description'],
-            'iso_file': arch_config['iso_file'],
+            'description': arch_config.get('description', f'{architecture} architecture'),
+            'iso_file': arch_config.get('iso_file', f'{architecture}.iso'),
             'iso_exists': os.path.exists(iso_path),
             'iso_size_mb': os.path.getsize(iso_path) / (1024*1024) if os.path.exists(iso_path) else 0,
             'vnc_port': arch_config.get('vnc_port', 5901),
@@ -500,9 +545,9 @@ class ArchManager:
     def _get_qemu_versions(self) -> Dict[str, str]:
         """Get versions of available QEMU binaries"""
         versions = {}
-        
-        for arch_name, arch_info in SUPPORTED_ARCHITECTURES.items():
-            qemu_binary = arch_info['qemu_binary']
+
+        for arch_name, vm_config in self.vm_configs.items():
+            qemu_binary = vm_config.get('qemu_binary', f'qemu-system-{arch_name}')
             
             try:
                 result = subprocess.run(
@@ -540,10 +585,11 @@ class ArchManager:
         # Architecture support
         report.append("Architecture Support:")
         for arch_name, available in self.available_architectures.items():
-            arch_info = SUPPORTED_ARCHITECTURES[arch_name]
+            arch_info = self.vm_configs.get(arch_name, {})
             status = "✅" if available else "❌"
             vm_count = len(self.vm_templates.get(arch_name, []))
-            report.append(f"  {status} {arch_name:10} ({arch_info['description']}) - {vm_count} VMs")
+            description = arch_info.get('description', f'{arch_name} architecture')
+            report.append(f"  {status} {arch_name:10} ({description}) - {vm_count} VMs")
         
         report.append("")
         
@@ -560,12 +606,15 @@ class ArchManager:
 
 def install_architecture_support(architecture: str) -> bool:
     """Install support for a specific architecture"""
-    if architecture not in SUPPORTED_ARCHITECTURES:
+    # 获取架构管理器实例来检查配置
+    arch_manager = ArchManager()
+
+    if architecture not in arch_manager.vm_configs:
         logger.error(f"Unknown architecture: {architecture}")
         return False
-    
-    arch_info = SUPPORTED_ARCHITECTURES[architecture]
-    qemu_binary = arch_info['qemu_binary']
+
+    arch_info = arch_manager.vm_configs[architecture]
+    qemu_binary = arch_info.get('qemu_binary', f'qemu-system-{architecture}')
     
     # Check if already installed
     if shutil.which(qemu_binary):

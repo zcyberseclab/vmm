@@ -75,6 +75,68 @@ class FileHandler:
             logger.error(f"保存文件失败: {str(e)}")
             raise
 
+    async def save_uploaded_file_from_path(self, source_path: str, filename: str = None) -> Dict[str, Any]:
+        """
+        从本地路径保存文件到上传目录
+
+        Args:
+            source_path: 源文件路径
+            filename: 可选的文件名，如果不提供则使用源文件名
+
+        Returns:
+            Dict[str, Any]: 文件信息（包含文件的路径、哈希、大小等）
+        """
+        try:
+            # 确保上传目录存在
+            os.makedirs(self.settings.server.upload_dir, exist_ok=True)
+
+            # 读取文件内容
+            with open(source_path, 'rb') as f:
+                content = f.read()
+            file_size = len(content)
+
+            # 计算文件哈希
+            file_hash = hashlib.sha256(content).hexdigest()
+
+            # 生成文件路径
+            if not filename:
+                filename = os.path.basename(source_path)
+
+            file_extension = os.path.splitext(filename)[1] if filename else ""
+            if not file_extension:
+                file_extension = ".bin"
+            file_name = f"{file_hash}{file_extension}"
+            file_path = os.path.join(self.settings.server.upload_dir, file_name)
+
+            # 如果文件已存在，直接返回信息
+            if os.path.exists(file_path):
+                logger.info(f"文件已存在: {file_path}")
+                return {
+                    "path": file_path,
+                    "hash": file_hash,
+                    "size": file_size,
+                    "original_name": filename,
+                    "is_compressed": False
+                }
+
+            # 保存文件
+            async with aiofiles.open(file_path, 'wb') as f:
+                await f.write(content)
+
+            logger.info(f"文件已保存: {file_path} (大小: {file_size} bytes)")
+
+            return {
+                "path": file_path,
+                "hash": file_hash,
+                "size": file_size,
+                "original_name": filename,
+                "is_compressed": False
+            }
+
+        except Exception as e:
+            logger.error(f"从路径保存文件失败: {str(e)}")
+            raise
+
 
 
     async def calculate_file_hash(self, file_path: str) -> str:

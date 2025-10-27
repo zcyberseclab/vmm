@@ -195,6 +195,7 @@ class AnalysisTask(BaseModel):
     error_message: Optional[str] = None
     edr_results: List[VMTaskResult] = Field(default_factory=list)
     behavior_results: Optional[BehaviorAnalysisResult] = None
+    analysis_metadata: Optional[Dict[str, Any]] = Field(default_factory=dict)
 
     @model_serializer
     def serialize_model(self):
@@ -214,7 +215,8 @@ class AnalysisTask(BaseModel):
             'completed_at': format_timestamp_to_local(self.completed_at) if self.completed_at else None,
             'error_message': self.error_message,
             'edr_results': self.edr_results,
-            'behavior_results': self.behavior_results
+            'behavior_results': self.behavior_results,
+            'analysis_metadata': self.analysis_metadata
         }
 
     class Config:
@@ -265,6 +267,7 @@ class AnalysisResultResponse(BaseModel):
     total_alerts: int
     edr_results: List[VMTaskResult]
     behavior_results: Optional[BehaviorAnalysisResult] = None
+    analysis_metadata: Optional[Dict[str, Any]] = Field(default_factory=dict)
     summary: Dict[str, Any] = Field(default_factory=dict)
     
     class Config:

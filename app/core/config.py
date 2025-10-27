@@ -173,12 +173,37 @@ class WindowsConfig(BaseModel):
     sysmon_analysis: Optional[SysmonAnalysisConfig] = None
 
 
+class LinuxVMConfig(BaseModel):
+    """Linux VM配置"""
+    name: str
+    architecture: str
+    qemu_binary: str
+    iso_file: str
+    memory: str = "512"
+    smp: str = "1"
+    vnc_port: int = 5900
+
+
+class LinuxBehavioralAnalysisConfig(BaseModel):
+    """Linux行为分析配置"""
+    enabled: bool = True
+    vms: List[LinuxVMConfig] = []
+    analysis_settings: Optional[AnalysisSettings] = None
+    sample_settings: Optional[SampleSettings] = None
+
+
+class LinuxConfig(BaseModel):
+    """Linux分析配置"""
+    behavioral_analysis: Optional[LinuxBehavioralAnalysisConfig] = None
+
+
 class Settings(BaseModel):
     """应用配置"""
     server: ServerConfig
     virtualization: VirtualizationConfig
     virtual_machines: Optional[List[VirtualMachineConfig]] = []  # 兼容性保留
     windows: Optional[WindowsConfig] = None
+    linux: Optional[LinuxConfig] = None
     task_settings: TaskConfig
     logging: LoggingConfig
 
